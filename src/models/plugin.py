@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class PluginType(str, Enum):
@@ -47,11 +47,14 @@ class Plugin(BaseModel):
     install_path: Optional[str] = Field(None, description="Installation path")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata")
 
-    class Config:
-        """Pydantic config."""
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
 
-        use_enum_values = True
-        json_encoders = {datetime: lambda v: v.isoformat() if v else None}
+    @field_serializer("install_date", "last_updated")
+    def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        """Serialize datetime to ISO format string."""
+        return value.isoformat() if value else None
 
 
 class PluginMetadata(BaseModel):
@@ -71,10 +74,9 @@ class PluginMetadata(BaseModel):
     entry_point: Optional[str] = Field(None, description="Main entry point file")
     readme_content: Optional[str] = Field(None, description="README content")
 
-    class Config:
-        """Pydantic config."""
-
-        use_enum_values = True
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
 
 
 class ValidationResult(BaseModel):
