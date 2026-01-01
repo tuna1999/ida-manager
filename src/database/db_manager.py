@@ -6,11 +6,11 @@ and queries for plugins, history, and settings.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from src.config.constants import DATABASE_FILE
@@ -38,8 +38,8 @@ class DatabaseManager:
         # Create engine
         self.engine = create_engine(f"sqlite:///{self.db_path}", echo=False)
 
-        # Create session factory
-        self.Session = sessionmaker(bind=self.engine)
+        # Create session factory with expire_on_commit=False to avoid detached instance errors
+        self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def init_database(self) -> bool:
         """
@@ -152,20 +152,35 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise.
         """
+        session = self.get_session()
         try:
-            session = self.get_session()
             existing = session.query(Plugin).filter_by(id=plugin.id).first()
             if existing:
-                for key, value in plugin.__dict__.items():
-                    if not key.startswith("_"):
-                        setattr(existing, key, value)
-                existing.updated_at = datetime.utcnow()
+                # Update specific fields only
+                existing.name = plugin.name
+                existing.description = plugin.description
+                existing.author = plugin.author
+                existing.repository_url = plugin.repository_url
+                existing.installed_version = plugin.installed_version
+                existing.latest_version = plugin.latest_version
+                existing.install_date = plugin.install_date
+                existing.last_updated = plugin.last_updated
+                existing.plugin_type = plugin.plugin_type
+                existing.ida_version_min = plugin.ida_version_min
+                existing.ida_version_max = plugin.ida_version_max
+                existing.is_active = plugin.is_active
+                existing.install_path = plugin.install_path
+                existing.metadata_json = plugin.metadata_json
+                existing.updated_at = datetime.now(timezone.utc)
+
                 session.commit()
                 session.close()
                 return True
             session.close()
             return False
         except Exception as e:
+            session.rollback()
+            session.close()
             print(f"Failed to update plugin: {e}")
             return False
 
@@ -264,11 +279,12 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise.
         """
+        session = self.get_session()
         try:
-            session = self.get_session()
             existing = session.query(GitHubRepo).filter_by(id=repo.id).first()
             if existing:
-                # Update existing
+                # Update fields manually
+                existing.plugin_id = repo.plugin_id
                 existing.repo_owner = repo.repo_owner
                 existing.repo_name = repo.repo_name
                 existing.stars = repo.stars
@@ -281,6 +297,8 @@ class DatabaseManager:
             session.close()
             return True
         except Exception as e:
+            session.rollback()
+            session.close()
             print(f"Failed to save GitHub repo: {e}")
             return False
 
@@ -418,15 +436,16 @@ class DatabaseManager:
             Setting value or default.
         """
         session = self.get_session()
-        setting = session.query(Settings).filter_by(key=key).first()
-        session.close()
-
-        if setting and setting.value:
-            try:
-                return json.loads(setting.value)
-            except json.JSONDecodeError:
-                return setting.value
-        return default
+        try:
+            setting = session.query(Settings).filter_by(key=key).first()
+            if setting and setting.value:
+                try:
+                    return json.loads(setting.value)
+                except json.JSONDecodeError:
+                    return setting.value
+            return default
+        finally:
+            session.close()
 
     def set_setting(self, key: str, value: Any) -> bool:
         """
@@ -444,7 +463,7 @@ class DatabaseManager:
             setting = session.query(Settings).filter_by(key=key).first()
             if setting:
                 setting.value = json.dumps(value)
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = datetime.now(timezone.utc)
             else:
                 setting = Settings(key=key, value=json.dumps(value))
                 session.add(setting)

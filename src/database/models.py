@@ -1,15 +1,19 @@
 """
 SQLAlchemy database models for IDA Plugin Manager.
+
+Compatible with SQLAlchemy 2.0+
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Base class for all database models."""
+    pass
 
 
 class Plugin(Base):
@@ -21,26 +25,37 @@ class Plugin(Base):
 
     __tablename__ = "plugins"
 
-    id = Column(String, primary_key=True)
-    name = Column(String, unique=True, nullable=False, index=True)
-    description = Column(Text, nullable=True)
-    author = Column(String, nullable=True)
-    repository_url = Column(String, nullable=True)
-    installed_version = Column(String, nullable=True)
-    latest_version = Column(String, nullable=True)
-    install_date = Column(DateTime, nullable=True)
-    last_updated = Column(DateTime, nullable=True)
-    plugin_type = Column(Enum("legacy", "modern", name="plugin_type_enum"), nullable=False)
-    ida_version_min = Column(String, nullable=True)
-    ida_version_max = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True, index=True)
-    install_path = Column(String, nullable=True)
-    metadata_json = Column(Text, nullable=True)  # JSON stored as text
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    author: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    repository_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    installed_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    latest_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    install_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    plugin_type: Mapped[str] = mapped_column(
+        Enum("legacy", "modern", name="plugin_type_enum", create_constraint=True),
+        nullable=False,
+    )
+    ida_version_min: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    ida_version_max: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
+    install_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON stored as text
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
-    installation_history = relationship("InstallationHistory", back_populates="plugin", cascade="all, delete-orphan")
+    installation_history: Mapped[list["InstallationHistory"]] = relationship(
+        "InstallationHistory",
+        back_populates="plugin",
+        cascade="all, delete-orphan",
+    )
 
 
 class GitHubRepo(Base):
@@ -52,14 +67,18 @@ class GitHubRepo(Base):
 
     __tablename__ = "github_repos"
 
-    id = Column(String, primary_key=True)
-    plugin_id = Column(String, ForeignKey("plugins.id", ondelete="CASCADE"), nullable=True)
-    repo_owner = Column(String, nullable=False)
-    repo_name = Column(String, nullable=False)
-    stars = Column(Integer, default=0)
-    last_fetched = Column(DateTime, nullable=True)
-    topics = Column(Text, nullable=True)  # JSON array stored as text
-    releases = Column(Text, nullable=True)  # JSON array stored as text
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    plugin_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        ForeignKey("plugins.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    repo_owner: Mapped[str] = mapped_column(String(255), nullable=False)
+    repo_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    stars: Mapped[int] = mapped_column(Integer, default=0)
+    last_fetched: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    topics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array stored as text
+    releases: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array stored as text
 
 
 class InstallationHistory(Base):
@@ -71,16 +90,23 @@ class InstallationHistory(Base):
 
     __tablename__ = "installation_history"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    plugin_id = Column(String, ForeignKey("plugins.id", ondelete="CASCADE"), nullable=False)
-    action = Column(Enum("install", "uninstall", "update", "failed", name="action_enum"), nullable=False)
-    version = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    error_message = Column(Text, nullable=True)
-    success = Column(Boolean, default=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plugin_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("plugins.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(
+        Enum("install", "uninstall", "update", "failed", name="action_enum", create_constraint=True),
+        nullable=False,
+    )
+    version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships
-    plugin = relationship("Plugin", back_populates="installation_history")
+    plugin: Mapped["Plugin"] = relationship("Plugin", back_populates="installation_history")
 
 
 class Settings(Base):
@@ -92,6 +118,6 @@ class Settings(Base):
 
     __tablename__ = "settings"
 
-    key = Column(String, primary_key=True)
-    value = Column(Text, nullable=True)  # JSON stored as text
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON stored as text
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
