@@ -75,6 +75,13 @@ Dear PyGui-based native Windows interface:
 - **PluginBrowser**: Displays filtered/sorted plugin list, handles selection
 - **StatusPanel**: Shows operation feedback with color-coded messages
 - **themes.py**: Defines Dark and Light color schemes
+- **Dialogs** (`src/ui/dialogs/`):
+  - **AboutDialog**: Application information and version display
+  - **PluginDetailsDialog**: Comprehensive plugin information with scrollable content
+  - **ConfirmDialog**: User confirmation prompts for destructive actions
+  - **InstallURLDialog**: GitHub URL input for plugin installation
+  - **ProgressDialog**: Progress feedback for long-running operations
+  - **SettingsDialog**: Configuration with tabbed interface and file browser
 
 ### Data Flow
 
@@ -99,3 +106,34 @@ Dear PyGui-based native Windows interface:
 - **Result Objects**: Operations return typed result objects (InstallationResult, ValidationResult) rather than raising exceptions
 - **Model Conversion**: Database models (SQLAlchemy) are converted to Pydantic models when moving between layers (`_db_to_model()` in PluginManager)
 - **Backup/Restore**: File operations in `src/utils/file_ops.py` provide backup before destructive operations
+
+### Dear PyGui Patterns
+
+Critical patterns when working with Dear PyGui 2.x:
+
+- **UUID-Based Widget Tags**: All widget tags must be unique to avoid "Alias already exists" errors when reopening dialogs
+  ```python
+  import uuid
+  self._instance_id = str(uuid.uuid4())[:8]
+  dialog_tag = f"settings_dialog_{self._instance_id}"
+  ```
+
+- **Parent Parameter for child_window**: When creating child_window outside initialization context, explicitly specify parent
+  ```python
+  # Use this pattern to avoid "Parent could not be deduced" errors
+  dpg.child_window(tag="plugins_child_window", parent="main_window")
+  ```
+
+- **Modal Dialog Lifecycle**: Always check if dialog exists before showing, and delete properly on close
+  ```python
+  if self._dialog_id and dpg.does_item_exist(self._dialog_id):
+      dpg.delete_item(self._dialog_id)
+      self._dialog_id = None
+  ```
+
+### Utilities
+
+- **src/utils/validators.py**: GitHub URL validation and parsing (`validate_github_url()`, `parse_github_url()`)
+- **src/utils/logger.py**: Logging configuration
+- **src/utils/file_ops.py**: Safe file operations with backup/restore
+- **.serena/memories/**: Additional context and patterns for Serena agent (project overview, known issues, GUI task checklist)

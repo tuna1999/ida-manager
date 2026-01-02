@@ -289,20 +289,20 @@ class SettingsDialog:
 
     def _on_browse_ida(self) -> None:
         """Handle browse button for IDA path."""
-        # Create file dialog if it doesn't exist
-        if not self.dpg.does_item_exist(self._file_dialog_tag):
-            with self.dpg.file_dialog(
-                directory_selector=True,
-                callback=self._on_ida_path_selected,
-                tag=self._file_dialog_tag,
-                width=600,
-                height=400,
-                modal=True
-            ):
-                self.dpg.add_file_extension(".*")
+        # Delete existing dialog if present
+        if self.dpg.does_item_exist(self._file_dialog_tag):
+            self.dpg.delete_item(self._file_dialog_tag)
 
-        # Show the file dialog
-        self.dpg.show_file_dialog(self._file_dialog_tag)
+        # Create and show file dialog (auto-shown on creation)
+        with self.dpg.file_dialog(
+            directory_selector=True,
+            callback=self._on_ida_path_selected,
+            tag=self._file_dialog_tag,
+            width=600,
+            height=400,
+            modal=True
+        ):
+            self.dpg.add_file_extension(".*")
 
     def _on_ida_path_selected(self, sender, app_data, user_data=None) -> None:
         """Handle IDA path selection from file dialog.
