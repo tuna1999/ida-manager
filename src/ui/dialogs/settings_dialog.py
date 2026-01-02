@@ -144,6 +144,16 @@ class SettingsDialog:
         self.dpg.add_text("Detected Version:", tag=f"ida_version_label_{self._instance_id}")
         self.dpg.add_text("Not detected", tag=f"ida_version_value_{self._instance_id}")
 
+        self.dpg.add_spacer(height=10)
+        self.dpg.add_separator()
+        self.dpg.add_spacer(height=10)
+        self.dpg.add_text("IDA User Directory (IDAUSR)", color=(200, 200, 200, 255))
+        self.dpg.add_spacer(height=5)
+        self.dpg.add_text("User plugins are installed in $IDAUSR/plugins", color=(150, 150, 150, 255))
+        self.dpg.add_spacer(height=5)
+        self.dpg.add_text("IDAUSR:", tag=f"idausr_label_{self._instance_id}")
+        self.dpg.add_text("Loading...", tag=f"idausr_value_{self._instance_id}")
+
     def _create_github_tab(self) -> None:
         """Create GitHub settings tab."""
         self.dpg.add_spacer(height=10)
@@ -271,6 +281,35 @@ class SettingsDialog:
 
         # Update IDA version display
         self._update_ida_version_display()
+
+        # Update IDAUSR display
+        self._update_idausr_display()
+
+    def _update_idausr_display(self) -> None:
+        """Update the IDAUSR display."""
+        idausr_value_tag = f"idausr_value_{self._instance_id}"
+        if not self.dpg.does_item_exist(idausr_value_tag):
+            return
+
+        try:
+            # Get IDAUSR directories using IDADetector
+            idausr_dirs = self.ida_detector.get_idausr_directories()
+
+            if idausr_dirs:
+                # Format for display (join with separator)
+                if os.name == "nt":  # Windows
+                    separator = "; "
+                else:  # Linux/Mac
+                    separator = ": "
+
+                idausr_display = separator.join(str(p) for p in idausr_dirs)
+                self.dpg.set_value(idausr_value_tag, idausr_display)
+            else:
+                self.dpg.set_value(idausr_value_tag, "Not set (using default)")
+
+        except Exception as e:
+            logger.error(f"Error loading IDAUSR: {e}", exc_info=True)
+            self.dpg.set_value(idausr_value_tag, "Error loading IDAUSR")
 
     def _update_ida_version_display(self) -> None:
         """Update the IDA version display."""

@@ -105,6 +105,12 @@
 - [x] Dear PyGui bug fixes (UUID tags, parent parameters) | Done: 01/02/2026
 - [x] CLAUDE.md updated with Dear PyGui patterns | Done: 01/02/2026
 
+### Bug Fixes (01/02/2026)
+- [x] Fix file dialog z-order issue (tkinter native dialog) | Done: 01/02/2026
+- [x] Fix combo box callback TypeError (parse display text) | Done: 01/02/2026
+- [x] Future-proof IDA detection with glob patterns (supports all future versions) | Done: 01/02/2026
+- [x] Update Serena memories with bug fixes and project status | Done: 01/02/2026
+
 ## Project Statistics
 
 - **Total Files**: 30+ Python modules

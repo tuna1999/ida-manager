@@ -125,37 +125,113 @@ class IDADetector:
         logger.warning(f"Could not determine IDA version for {ida_path}")
         return None
 
-    def get_plugin_directory(self, ida_path: Path) -> Path:
+    def get_idausr_directories(self) -> List[Path]:
+        """
+        Get all IDAUSR directories from environment variable.
+
+        IDAUSR can contain multiple paths separated by platform separator:
+        - Windows: semicolon (;)
+        - Linux/Mac: colon (:)
+
+        Returns:
+            List of IDAUSR directories. Returns default location if not set.
+        """
+        idausr_env = os.environ.get("IDAUSR", "")
+
+        if not idausr_env:
+            # Return default location based on platform
+            if os.name == "nt":  # Windows
+                return [Path(os.environ.get("APPDATA", "")) / "Hex-Rays" / "IDA Pro"]
+            else:  # Linux/Mac
+                return [Path(os.path.expanduser("~")) / ".idapro"]
+
+        # Split by platform separator
+        if os.name == "nt":  # Windows
+            separator = ";"
+        else:  # Linux/Mac
+            separator = ":"
+
+        # Parse and return paths
+        paths = []
+        for path_str in idausr_env.split(separator):
+            path = Path(path_str.strip())
+            if path.exists():
+                paths.append(path)
+
+        # If no existing paths found, return at least the first one
+        return paths if paths else [Path(idausr_env.split(separator)[0])]
+
+    def get_plugin_directory(self, ida_path: Path, prefer_user: bool = True) -> Path:
         """
         Get plugin directory for IDA installation.
 
-        For both legacy and modern IDA versions, plugins are stored in:
-        {ida_path}/plugins/
+        IDA loads plugins in this order:
+        1. $IDAUSR/plugins (user plugins - priority)
+        2. %IDADIR%/plugins (installation plugins)
 
-        User-specific plugins may be in:
-        %APPDATA%/Hex-Rays/IDA Pro/plugins/
+        Args:
+            ida_path: Path to IDA Pro installation
+            prefer_user: If True, prefer IDAUSR/plugins (default: True)
+
+        Returns:
+            Path to plugins directory.
+        """
+        # 1. Check IDAUSR directories (user plugins)
+        if prefer_user:
+            idausr_dirs = self.get_idausr_directories()
+            for idausr_dir in idausr_dirs:
+                user_plugin_dir = idausr_dir / "plugins"
+                if user_plugin_dir.exists():
+                    logger.info(f"Using IDAUSR plugins directory: {user_plugin_dir}")
+                    return user_plugin_dir
+
+        # 2. Fallback to installation directory
+        plugin_dir = ida_path / "plugins"
+        if plugin_dir.exists():
+            logger.info(f"Using IDADIR plugins directory: {plugin_dir}")
+            return plugin_dir
+
+        # 3. Create IDAUSR plugins dir as last resort
+        if prefer_user:
+            idausr_dirs = self.get_idausr_directories()
+            if idausr_dirs:
+                user_plugin_dir = idausr_dirs[0] / "plugins"
+                user_plugin_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created IDAUSR plugins directory: {user_plugin_dir}")
+                return user_plugin_dir
+
+        # 4. Final fallback
+        return plugin_dir
+
+    def get_all_plugin_directories(self, ida_path: Path) -> List[Path]:
+        """
+        Get all plugin directories where IDA will look for plugins.
+
+        Returns directories in IDA's loading order:
+        1. All $IDAUSR/plugins directories (user plugins)
+        2. %IDADIR%/plugins (installation plugins)
 
         Args:
             ida_path: Path to IDA Pro installation
 
         Returns:
-            Path to plugins directory.
+            List of plugin directories in loading order.
         """
-        # Standard plugins directory
+        plugin_dirs = []
+
+        # 1. Add all IDAUSR/plugins directories
+        idausr_dirs = self.get_idausr_directories()
+        for idausr_dir in idausr_dirs:
+            user_plugin_dir = idausr_dir / "plugins"
+            if user_plugin_dir.exists():
+                plugin_dirs.append(user_plugin_dir)
+
+        # 2. Add installation directory
         plugin_dir = ida_path / "plugins"
-
         if plugin_dir.exists():
-            return plugin_dir
+            plugin_dirs.append(plugin_dir)
 
-        # Check for user-specific plugins
-        appdata = Path(os.environ.get("APPDATA", ""))
-        user_plugin_dir = appdata / "Hex-Rays" / "IDA Pro" / "plugins"
-
-        if user_plugin_dir.exists():
-            return user_plugin_dir
-
-        # Default to standard location
-        return plugin_dir
+        return plugin_dirs
 
     def validate_ida_installation(self, path: Path) -> bool:
         """

@@ -230,10 +230,12 @@ class InstallURLDialog:
                 from src.utils.validators import parse_github_url
                 owner, repo = parse_github_url(url)
 
-                result = self.plugin_manager.install_plugin_from_github(
-                    owner=owner,
-                    repo=repo,
-                    use_development=True  # Use git clone for development version
+                # Use full URL with install_plugin method
+                # use_development=True maps to method="clone" (git clone)
+                result = self.plugin_manager.install_plugin(
+                    repo_url=url,
+                    method="clone",   # Clone = git clone (development version)
+                    branch="main"
                 )
 
                 if result.success:
