@@ -122,28 +122,35 @@ User clicks "Install"
 
 **Completed:**
 - ✅ Config Layer (with tests)
-- ✅ Models Layer (Pydantic models)
-- ✅ Database Layer (SQLAlchemy 2.0, with tests)
-- ✅ Utils Layer (validators complete)
+- ✅ Models Layer (Pydantic 2.0 models)
+- ✅ Database Layer (SQLAlchemy 2.0, with 56 tests)
+- ✅ Utils Layer (validators, logger, file_ops all complete)
+- ✅ Core Layer (IDADetector, PluginInstaller, VersionManager, PluginManager - all complete!)
+- ✅ GitHub Layer (GitHubClient, RepoParser, ReleaseFetcher - all complete!)
 - ✅ UI Layer (MainWindow, PluginBrowser, StatusPanel, themes)
 - ✅ All Dialogs (Confirm, InstallURL, Progress, Settings, About, PluginDetails)
-- ✅ File dialog for IDA path browsing
-- ✅ Progress dialog integration
-- ✅ Update checking with results display
-- ✅ 56 tests covering config, models, database
+- ✅ File dialog using tkinter native dialog (bypasses Dear PyGui limitations)
+- ✅ IDA auto-detection with glob patterns (future-proof for any version)
 - ✅ Dialog tag conflict fixes with UUID
+- ✅ Combo box callback parsing fix
 
-**In Progress:**
-- ⚠️ Core Layer (PluginManager scaffolded, needs IDADetector/PluginInstaller/VersionManager)
-- ⚠️ GitHub Layer (GitHubClient scaffolded, needs RepoParser/ReleaseFetcher)
+**All core features are now implemented!**
 
 **Todo List:**
-1. Complete GitHub Integration Layer (RepoParser, ReleaseFetcher)
-2. Complete Core Business Logic Layer (IDADetector, PluginInstaller, VersionManager)
-3. Add integration tests
-4. Create user documentation
+1. Integration testing - verify all components work together
+2. Error recovery - make application robust for edge cases
+3. User documentation - README, user guide
+4. Enhancement features - keyboard shortcuts, tray icon, batch operations
 
-## Important: Dear PyGui Tag Management
+## Recent Bug Fixes (2026-01-02)
+
+1. **Dear PyGui Tag Conflicts**: Fixed by adding UUID-based instance IDs to all dialogs
+2. **MainWindow _refresh_ui Context Issues**: Fixed by specifying `parent="main_window"` for child_window
+3. **File Dialog Z-Order Issue**: Fixed by using tkinter native dialog instead of Dear PyGui file_dialog
+4. **Combo Box Callback TypeError**: Fixed by parsing display text to extract path
+5. **IDA Detection Hardcoded Paths**: Fixed by using glob patterns for future-proof version detection
+
+---
 
 **Critical Pattern**: All dialogs MUST use unique UUID-based tags to avoid "Alias already exists" errors when opening dialogs multiple times.
 

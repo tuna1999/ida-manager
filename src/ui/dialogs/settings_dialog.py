@@ -358,12 +358,26 @@ class SettingsDialog:
                 self.dpg.set_value(detect_status_tag, "Detection failed")
 
     def _on_installation_selected(self, sender, app_data, user_data) -> None:
-        """Handle installation selection from combo."""
-        if app_data is not None and 0 <= app_data < len(self._found_installations):
-            path, version = self._found_installations[app_data]
-            if self.dpg.does_item_exist(self._ida_path_tag):
+        """Handle installation selection from combo.
+
+        Note: app_data is the selected item's display text (e.g., "C:\\path (v9.1)")
+        not an index. We need to parse it to extract the path.
+        """
+        if app_data is not None:
+            # The combo item format is: "path (vversion)"
+            # Extract the path part (before the " (v" separator)
+            selected_text = str(app_data)
+            if " (v" in selected_text:
+                # Split on " (v" and take the first part (the path)
+                path = selected_text.split(" (v")[0]
+            else:
+                # Fallback: use the entire text as path
+                path = selected_text
+
+            if path and self.dpg.does_item_exist(self._ida_path_tag):
                 self.dpg.set_value(self._ida_path_tag, path)
-            self._update_ida_version_display()
+                self._update_ida_version_display()
+                logger.info(f"IDA installation selected from combo: {path}")
 
     def _on_validate_token(self) -> None:
         """Handle token validation button."""

@@ -257,11 +257,29 @@ After any UI changes, manually test:
 - [ ] Settings dialog opens/closes multiple times without errors
 - [ ] About dialog opens/closes multiple times without errors
 - [ ] Plugin Details dialog opens/closes multiple times without errors
-- [ ] File dialog (Settings → Browse) works correctly
+- [ ] File dialog (Settings → Browse) works with tkinter native dialog
+- [ ] IDA Auto-Detect button finds installations (IDA Professional 9.1, etc.)
+- [ ] IDA installation combo box selection works correctly
+- [ ] IDA version detection displays correctly
 - [ ] Theme switching (Dark/Light) works
 - [ ] Filter panel updates correctly
 - [ ] Progress dialogs show during operations
 - [ ] Check updates displays results correctly
+
+## Testing IDA Auto-Detect Feature
+
+```bash
+# Step-by-step test:
+# 1. Open Settings dialog (menu: Settings → Settings)
+# 2. Click "Auto-Detect" button
+# 3. Verify status shows "Found X installation(s)" or "No installations found"
+# 4. If found, combo box should appear with items like:
+#    "C:\Program Files\IDA Professional 9.1 (v9.1)"
+# 5. Click combo box and select an installation
+# 6. Verify path is filled in the IDA Path input field
+# 7. Verify "Detected Version" shows the version below
+# 8. Click Save to persist the configuration
+```
 
 ## Quick Reference
 

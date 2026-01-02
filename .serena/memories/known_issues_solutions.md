@@ -105,15 +105,122 @@ def _close(self):
         self._dialog_id = None
 ```
 
-### File Dialog Pattern
-File dialogs should be created once and reused, with unique tags per parent dialog:
-```python
-def __init__(self, dpg):
-    self._file_dialog_tag = f"file_dialog_{self._instance_id}"
+### File Dialog Z-Order Issue (FIXED)
 
-def _on_browse(self):
-    if not self.dpg.does_item_exist(self._file_dialog_tag):
-        with self.dpg.file_dialog(tag=self._file_dialog_tag, ...):
-            pass
-    self.dpg.show_file_dialog(self._file_dialog_tag)
+#### Problem
+Dear PyGui's `file_dialog` appears behind modal parent dialogs and cannot receive user interaction. Additionally, the `pos` parameter doesn't exist, causing errors:
+
 ```
+Error: [1000]
+Message: pos keyword does not exist.
+```
+
+#### Root Cause
+Dear PyGui 2.x `file_dialog` has limitations:
+- No `pos` parameter for positioning
+- Modal dialogs block interaction with parent
+- Z-order issues when created from within modal dialogs
+
+#### Solution Implemented
+Use **tkinter native file dialog** instead of Dear PyGui's file_dialog:
+
+```python
+import tkinter as tk
+from tkinter import filedialog
+
+def _on_browse_ida(self):
+    try:
+        # Create temporary tk root window (hidden)
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)  # Force on top
+        
+        # Show native Windows folder dialog
+        selected_path = filedialog.askdirectory(
+            title="Select IDA Pro Installation Directory",
+            initialdir=current_path
+        )
+        
+        # Clean up tk window
+        root.destroy()
+        
+        # Update Dear PyGui input with selected path
+        if selected_path:
+            self.dpg.set_value(self._ida_path_tag, selected_path)
+    except Exception as e:
+        logger.error(f"Error showing file dialog: {e}")
+```
+
+#### Files Modified
+- [src/ui/dialogs/settings_dialog.py](src/ui/dialogs/settings_dialog.py) - Added tkinter imports and native dialog
+
+#### Benefits
+- ✅ Native Windows UI (familiar to users)
+- ✅ Correct z-order (always on top)
+- ✅ Bypasses Dear PyGui limitations
+- ✅ Simple, reliable implementation
+
+---
+
+## Combo Box Callback TypeError (FIXED)
+
+### Problem
+Dear PyGui combo callback passes selected item's text (string), not index:
+```python
+TypeError: '<=' not supported between instances of 'int' and 'str'
+```
+
+#### Root Cause
+Combo `app_data` parameter contains the display text (e.g., `"C:\path (v9.1)"`), not an integer index.
+
+#### Solution Implemented
+Parse the display text to extract the path:
+
+```python
+def _on_installation_selected(self, sender, app_data, user_data):
+    # app_data is display text: "C:\\path (v9.1)"
+    selected_text = str(app_data)
+    if " (v" in selected_text:
+        path = selected_text.split(" (v")[0]  # Extract path before version
+    else:
+        path = selected_text
+    
+    self.dpg.set_value(self._ida_path_tag, path)
+```
+
+#### Files Modified
+- [src/ui/dialogs/settings_dialog.py](src/ui/dialogs/settings_dialog.py) - Fixed combo callback parsing
+
+---
+
+## IDA Detection Future-Proofing (FIXED)
+
+### Problem
+Hardcoded IDA paths only detect specific versions (9.0, 8.4, etc.). Newer versions like 9.3, 9.4, 10.0 are not detected.
+
+#### Solution Implemented
+Use **glob patterns** instead of hardcoded paths:
+
+```python
+# Before (hardcoded):
+IDA_DEFAULT_PATHS = [
+    Path("C:/Program Files/IDA Pro 9.0"),  # ❌ Only 9.0
+    Path("C:/Program Files/IDA Pro 8.4"),  # ❌ Only 8.4
+]
+
+# After (glob patterns):
+IDA_DEFAULT_PATHS = [
+    Path("C:/Program Files/IDA Pro*"),          # ✅ Any version
+    Path("C:/Program Files/IDA Professional*"), # ✅ Any version
+    Path("C:/Program Files/IDA*"),               # ✅ Fallback
+]
+```
+
+#### Files Modified
+- [src/config/constants.py](src/config/constants.py) - Replaced hardcoded paths with glob patterns
+- Updated `IDA_VERSION_MAX` from "9.9" to "99.0" for future support
+
+#### Supported Versions
+Now detects: IDA Pro 8.x, 9.0, 9.1, 9.3, 9.4, 10.0, 11.x, and all future versions!
+
+---

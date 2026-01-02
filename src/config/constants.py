@@ -17,14 +17,20 @@ LOG_DIR = CONFIG_DIR / "logs"
 DATABASE_FILE = CONFIG_DIR / "plugins.db"
 
 # IDA Pro Default Paths
+# Uses glob patterns to match any version - future-proof for IDA 9.x, 10.x, etc.
 IDA_DEFAULT_PATHS = [
-    Path("C:/Program Files/IDA Pro 9.0"),
-    Path("C:/Program Files/IDA Pro 8.4"),
-    Path("C:/Program Files/IDA Pro 8.3"),
-    Path("C:/Program Files (x86)/IDA Pro 9.0"),
-    Path("C:/Program Files (x86)/IDA Pro 8.4"),
-    Path(os.path.expandvars("%LOCALAPPDATA%/Programs/IDA Pro 9.0")),
-    Path(os.path.expanduser("~/IDA Pro 9.0")),
+    # Glob patterns for "IDA Pro" - matches: IDA Pro 9.0, IDA Pro 9.1, IDA Pro 10.0, etc.
+    Path("C:/Program Files/IDA Pro*"),
+    Path("C:/Program Files (x86)/IDA Pro*"),
+    # Glob patterns for "IDA Professional" - matches: IDA Professional 9.0, 9.1, 9.3, 9.4, etc.
+    Path("C:/Program Files/IDA Professional*"),
+    Path("C:/Program Files (x86)/IDA Professional*"),
+    # User/local installations (any version)
+    Path(os.path.expanduser("~/IDA*")),
+    Path(os.path.expandvars("%LOCALAPPDATA%/Programs/IDA*")),
+    # Fallback: any directory starting with IDA in Program Files
+    Path("C:/Program Files/IDA*"),
+    Path("C:/Program Files (x86)/IDA*"),
 ]
 
 # Windows Registry Keys for IDA Pro
@@ -43,8 +49,9 @@ PLUGIN_TYPE_LEGACY = "legacy"
 PLUGIN_TYPE_MODERN = "modern"
 
 # Compatibility
+# Support IDA Pro 7.x through future versions (10.x, 11.x, etc.)
 IDA_VERSION_MIN = "7.0"
-IDA_VERSION_MAX = "9.9"
+IDA_VERSION_MAX = "99.0"  # No upper limit to support all future versions
 
 # UI Constants
 UI_WINDOW_WIDTH = 1200
