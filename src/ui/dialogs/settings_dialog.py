@@ -12,6 +12,10 @@ import uuid
 from typing import Optional, List
 from src.utils.logger import get_logger
 
+# Import tkinter for native file dialog (bypasses Dear PyGui limitations)
+import tkinter as tk
+from tkinter import filedialog
+
 logger = get_logger(__name__)
 
 
@@ -288,39 +292,38 @@ class SettingsDialog:
             self.dpg.set_value(ida_version_value_tag, "Not detected")
 
     def _on_browse_ida(self) -> None:
-        """Handle browse button for IDA path."""
-        # Delete existing dialog if present
-        if self.dpg.does_item_exist(self._file_dialog_tag):
-            self.dpg.delete_item(self._file_dialog_tag)
+        """Handle browse button for IDA path using native Windows dialog."""
+        try:
+            # Create a temporary tk root window (hidden)
+            root = tk.Tk()
+            root.withdraw()  # Hide the main tk window
+            root.attributes('-topmost', True)  # Force dialog on top
 
-        # Create and show file dialog (auto-shown on creation)
-        with self.dpg.file_dialog(
-            directory_selector=True,
-            callback=self._on_ida_path_selected,
-            tag=self._file_dialog_tag,
-            width=600,
-            height=400,
-            modal=True
-        ):
-            self.dpg.add_file_extension(".*")
+            # Get current path as starting point
+            current_path = ""
+            if self.dpg.does_item_exist(self._ida_path_tag):
+                current_path = self.dpg.get_value(self._ida_path_tag) or ""
 
-    def _on_ida_path_selected(self, sender, app_data, user_data=None) -> None:
-        """Handle IDA path selection from file dialog.
+            # Show native Windows folder selection dialog
+            selected_path = filedialog.askdirectory(
+                title="Select IDA Pro Installation Directory",
+                initialdir=current_path if current_path else ""
+            )
 
-        Args:
-            sender: File dialog tag
-            app_data: Selection data containing file_path_name
-            user_data: Additional user data (unused)
-        """
-        selected_path = app_data.get("file_path_name", "") if app_data else ""
+            # Clean up tk window
+            root.destroy()
 
-        if selected_path and self.dpg.does_item_exist(self._ida_path_tag):
-            self.dpg.set_value(self._ida_path_tag, selected_path)
-            self._update_ida_version_display()
-
-            # Provide feedback
+            # Handle selection
             if selected_path:
-                logger.info(f"IDA path selected: {selected_path}")
+                if self.dpg.does_item_exist(self._ida_path_tag):
+                    self.dpg.set_value(self._ida_path_tag, selected_path)
+                    self._update_ida_version_display()
+                    logger.info(f"IDA path selected: {selected_path}")
+
+        except Exception as e:
+            logger.error(f"Error showing file dialog: {e}", exc_info=True)
+            if self.status_panel:
+                self.status_panel.add_error(f"Failed to open file dialog: {e}")
 
     def _on_auto_detect_ida(self) -> None:
         """Handle auto-detect button."""
