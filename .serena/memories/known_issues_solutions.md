@@ -224,3 +224,178 @@ IDA_DEFAULT_PATHS = [
 Now detects: IDA Pro 8.x, 9.0, 9.1, 9.3, 9.4, 10.0, 11.x, and all future versions!
 
 ---
+
+## IDAUSR Environment Variable Support (01/02/2026)
+
+### Problem
+IDADetector didn't support the IDAUSR environment variable, which is IDA Pro's official mechanism for user-specific plugins directory. The original implementation only used hardcoded default paths (`%APPDATA%/Hex-Rays/IDA Pro`) and didn't follow IDA's plugin loading order.
+
+**Original limitations**:
+- ❌ Only checked hardcoded default location
+- ❌ Didn't read `%IDAUSR%` environment variable
+- ❌ Didn't support multiple paths in IDAUSR
+- ❌ Didn't follow IDA's loading order (IDAUSR → IDADIR)
+- ❌ Required admin permissions for IDADIR/plugins installation
+
+### Root Cause
+According to [Hex-Rays documentation](https://docs.hex-rays.com/user-guide/general-concepts/environment-variables), IDA Pro uses two environment variables:
+- **IDAUSR**: User directory for plugins and settings (priority)
+- **IDADIR**: Installation directory
+
+IDA loads plugins in this order:
+1. `$IDAUSR/plugins` (user plugins - **priority**, overrides IDADIR)
+2. `%IDADIR%/plugins` (installation plugins)
+
+IDAUSR can contain **multiple paths** separated by platform-specific separators:
+- Windows: semicolon (`;`)
+- Linux/Mac: colon (`:`)
+
+### Solution Implemented
+
+#### 1. Added `get_idausr_directories()` method
+
+**Purpose**: Parse IDAUSR environment variable and return all directories
+
+**Implementation**:
+```python
+def get_idausr_directories(self) -> List[Path]:
+    """
+    Get all IDAUSR directories from environment variable.
+
+    IDAUSR can contain multiple paths separated by platform separator:
+    - Windows: semicolon (;)
+    - Linux/Mac: colon (:)
+    """
+    idausr_env = os.environ.get("IDAUSR", "")
+
+    if not idausr_env:
+        # Return default location based on platform
+        if os.name == "nt":  # Windows
+            return [Path(os.environ.get("APPDATA", "")) / "Hex-Rays" / "IDA Pro"]
+        else:  # Linux/Mac
+            return [Path(os.path.expanduser("~")) / ".idapro"]
+
+    # Split by platform separator
+    separator = ";" if os.name == "nt" else ":"
+
+    paths = []
+    for path_str in idausr_env.split(separator):
+        path = Path(path_str.strip())
+        if path.exists():
+            paths.append(path)
+
+    return paths if paths else [Path(idausr_env.split(separator)[0])]
+```
+
+#### 2. Modified `get_plugin_directory()` method
+
+**New behavior**: Follow IDA's loading order with `prefer_user` parameter
+
+```python
+def get_plugin_directory(self, ida_path: Path, prefer_user: bool = True) -> Path:
+    """
+    Get plugin directory for IDA installation.
+
+    IDA loads plugins in this order:
+    1. $IDAUSR/plugins (user plugins - priority)
+    2. %IDADIR%/plugins (installation plugins)
+    """
+    # 1. Check IDAUSR directories (user plugins)
+    if prefer_user:
+        idausr_dirs = self.get_idausr_directories()
+        for idausr_dir in idausr_dirs:
+            user_plugin_dir = idausr_dir / "plugins"
+            if user_plugin_dir.exists():
+                logger.info(f"Using IDAUSR plugins directory: {user_plugin_dir}")
+                return user_plugin_dir
+
+    # 2. Fallback to installation directory
+    plugin_dir = ida_path / "plugins"
+    if plugin_dir.exists():
+        logger.info(f"Using IDADIR plugins directory: {plugin_dir}")
+        return plugin_dir
+
+    # 3. Create IDAUSR plugins dir as last resort
+    if prefer_user:
+        idausr_dirs = self.get_idausr_directories()
+        if idausr_dirs:
+            user_plugin_dir = idausr_dirs[0] / "plugins"
+            user_plugin_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created IDAUSR plugins directory: {user_plugin_dir}")
+            return user_plugin_dir
+
+    return plugin_dir
+```
+
+#### 3. Added `get_all_plugin_directories()` method
+
+**Purpose**: Return ALL plugin directories in IDA's loading order
+
+```python
+def get_all_plugin_directories(self, ida_path: Path) -> List[Path]:
+    """
+    Get all plugin directories where IDA will look for plugins.
+
+    Returns directories in IDA's loading order:
+    1. All $IDAUSR/plugins directories (user plugins)
+    2. %IDADIR%/plugins (installation plugins)
+    """
+    plugin_dirs = []
+
+    # Add all IDAUSR/plugins directories
+    idausr_dirs = self.get_idausr_directories()
+    for idausr_dir in idausr_dirs:
+        user_plugin_dir = idausr_dir / "plugins"
+        if user_plugin_dir.exists():
+            plugin_dirs.append(user_plugin_dir)
+
+    # Add installation directory
+    plugin_dir = ida_path / "plugins"
+    if plugin_dir.exists():
+        plugin_dirs.append(plugin_dir)
+
+    return plugin_dirs
+```
+
+### Files Modified
+- [src/core/ida_detector.py](src/core/ida_detector.py) - Added 3 new methods (lines 128-234)
+- [src/ui/dialogs/settings_dialog.py](src/ui/dialogs/settings_dialog.py) - Added IDAUSR display section in IDA tab
+- [src/ui/dialogs/install_url_dialog.py](src/ui/dialogs/install_url_dialog.py) - Fixed bug: was calling non-existent `install_plugin_from_github()` method
+
+### Benefits
+- ✅ **Follows IDA's official loading order** (IDAUSR/plugins → IDADIR/plugins)
+- ✅ **Supports multiple paths** in IDAUSR with platform-specific separators
+- ✅ **No admin permissions required** for IDAUSR/plugins installation
+- ✅ **Plugins shared across IDA installations** - same plugins work for IDA 9.0, 9.1, etc.
+- ✅ **Plugins in IDAUSR override IDADIR** - allows customizing built-in plugins
+- ✅ **Cross-platform support** - Windows, Linux, Mac with correct separators
+- ✅ **Graceful fallback** - Creates IDAUSR/plugins if it doesn't exist
+
+### Usage Example
+```python
+# User sets environment variable
+# Windows: set IDAUSR=C:\my_idausr;D:\shared_plugins
+# Linux/Mac: export IDAUSR=/home/user/my_idausr:/opt/shared_plugins
+
+detector = IDADetector()
+
+# Get all IDAUSR directories
+idausr_dirs = detector.get_idausr_directories()
+# Returns: [Path("C:\\my_idausr"), Path("D:\\shared_plugins")]
+
+# Get plugin directory (prioritizes IDAUSR)
+plugin_dir = detector.get_plugin_directory(ida_path, prefer_user=True)
+# Returns: C:\my_idausr\plugins (if exists)
+# Or: C:\Program Files\IDA Pro 9.0\plugins (fallback)
+
+# Get all plugin directories for scanning
+all_dirs = detector.get_all_plugin_directories(ida_path)
+# Returns: [C:\my_idausr\plugins, D:\shared_plugins\plugins, C:\Program Files\IDA Pro 9.0\plugins]
+```
+
+### Additional Bug Fix
+During implementation, discovered and fixed bug in InstallURLDialog:
+- **Bug**: Was calling non-existent `install_plugin_from_github()` method
+- **Fix**: Changed to call correct `install_plugin(repo_url, method="clone", branch="main")` method
+
+---
