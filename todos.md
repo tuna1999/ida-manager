@@ -111,6 +111,14 @@
 - [x] Future-proof IDA detection with glob patterns (supports all future versions) | Done: 01/02/2026
 - [x] Update Serena memories with bug fixes and project status | Done: 01/02/2026
 
+### IDAUSR Environment Variable Support (01/02/2026)
+- [x] Add get_idausr_directories() method to parse IDAUSR env var | Done: 01/02/2026
+- [x] Support multiple paths in IDAUSR (; on Windows, : on Linux/Mac) | Done: 01/02/2026
+- [x] Update get_plugin_directory() to follow IDA's loading order (IDAUSR → IDADIR) | Done: 01/02/2026
+- [x] Add get_all_plugin_directories() method for scanning all plugin locations | Done: 01/02/2026
+- [x] Fix InstallURLDialog bug - was calling non-existent install_plugin_from_github() | Done: 01/02/2026
+- [x] Update Settings dialog to display IDAUSR value | Done: 01/02/2026
+
 ## Project Statistics
 
 - **Total Files**: 30+ Python modules
