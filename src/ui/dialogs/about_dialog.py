@@ -7,6 +7,8 @@ Displays application information, version, license, and links.
 import uuid
 from typing import Optional
 
+from src.ui.spacing import Spacing
+
 
 class AboutDialog:
     """
@@ -54,16 +56,16 @@ class AboutDialog:
         ):
             self._dialog_id = dialog_tag
 
-            self.dpg.add_spacer(height=15)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Title
             self.dpg.add_text("IDA Plugin Manager", color=(100, 200, 255, 255))
-            self.dpg.add_spacer(height=5)
+            self.dpg.add_spacer(height=Spacing.XS)
 
             # Version
             version_text = f"Version {self.version}"
             self.dpg.add_text(version_text, color=(180, 180, 180, 255))
-            self.dpg.add_spacer(height=15)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Description
             description = (
@@ -71,7 +73,7 @@ class AboutDialog:
                 "Discover, install, update, and manage plugins from GitHub."
             )
             self.dpg.add_text(description, wrap=dialog_width - 40)
-            self.dpg.add_spacer(height=15)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Features
             features_text = (
@@ -82,18 +84,18 @@ class AboutDialog:
                 "• Support for both legacy and modern plugin formats"
             )
             self.dpg.add_text(features_text, wrap=dialog_width - 40, color=(150, 180, 150, 255))
-            self.dpg.add_spacer(height=15)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # License
             self.dpg.add_text("License: MIT", color=(150, 150, 150, 255))
-            self.dpg.add_spacer(height=5)
+            self.dpg.add_spacer(height=Spacing.XS)
 
             # Links
             self.dpg.add_text("GitHub Repository:", color=(150, 150, 150, 255))
             repo_url = "https://github.com/yourusername/IDA-plugins-manager"
             self.dpg.add_text(repo_url, wrap=dialog_width - 40, color=(100, 150, 255, 255))
 
-            self.dpg.add_spacer(height=15)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Close button
             with self.dpg.group(horizontal=True):

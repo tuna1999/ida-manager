@@ -7,7 +7,7 @@ Compatible with SQLAlchemy 2.0+
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text, func, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -43,6 +43,22 @@ class Plugin(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
     install_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON stored as text
+
+    # Plugin catalog fields
+    status: Mapped[str] = mapped_column(
+        Enum("not_installed", "installed", "failed", name="plugin_status_enum", create_constraint=True),
+        nullable=False,
+        default="not_installed",
+        index=True,
+    )
+    installation_method: Mapped[Optional[str]] = mapped_column(
+        Enum("clone", "release", name="install_method_enum", create_constraint=True),
+        nullable=True,
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    added_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Stored as JSON array
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

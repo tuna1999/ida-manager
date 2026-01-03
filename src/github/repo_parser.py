@@ -41,15 +41,19 @@ class RepoParser:
             repo_name: Repository name
             contents: List of files/directories in repository
             readme: README content (optional)
-            plugins_json: Parsed plugins.json content (optional)
+            plugins_json: Parsed ida-plugin.json content (optional)
 
         Returns:
             ValidationResult with plugin type and metadata
         """
-        # Check for plugins.json (modern plugin)
-        has_plugins_json = any(item.name == "plugins.json" for item in contents if item.type == "file")
+        # Check for ida-plugin.json (IDA Pro 9.0+ official format only)
+        has_ida_plugin_json = any(
+            item.name == "ida-plugin.json"
+            for item in contents
+            if item.type == "file"
+        )
 
-        if has_plugins_json and plugins_json:
+        if has_ida_plugin_json and plugins_json:
             return self._parse_modern_plugin(repo_name, contents, readme, plugins_json)
 
         # Check for legacy plugin patterns
@@ -61,7 +65,7 @@ class RepoParser:
         # Not a valid plugin
         return ValidationResult(
             valid=False,
-            error="No IDA plugin structure detected (no plugins.json or Python files found)"
+            error="No IDA plugin structure detected (no ida-plugin.json or Python files with IDA entry points)"
         )
 
     def parse_readme(self, readme_content: str) -> PluginMetadata:
@@ -122,24 +126,66 @@ class RepoParser:
 
     def parse_plugins_json(self, json_content: dict) -> PluginMetadata:
         """
-        Parse plugins.json for modern plugin metadata.
+        Parse ida-plugin.json for IDA Pro 9.0+ plugin metadata.
+
+        IDA Pro 9.0+ uses the following official format:
+        {
+          "IDAMetadataDescriptorVersion": 1,
+          "plugin": {
+            "name": "...",
+            "entryPoint": "...",
+            ...
+          }
+        }
 
         Args:
-            json_content: Parsed plugins.json content
+            json_content: Parsed ida-plugin.json content
 
         Returns:
             PluginMetadata object
         """
-        return PluginMetadata(
-            name=json_content.get("name", ""),
-            version=json_content.get("version"),
-            description=json_content.get("description"),
-            author=json_content.get("author"),
-            ida_version_min=json_content.get("ida_version_min"),
-            ida_version_max=json_content.get("ida_version_max"),
-            dependencies=json_content.get("dependencies", []),
-            entry_point=json_content.get("entry_point"),
-        )
+        # Check if IDA Pro 9.0+ format (has "plugin" wrapper)
+        if "plugin" in json_content:
+            plugin_data = json_content["plugin"]
+
+            # Extract authors
+            authors_list = plugin_data.get("authors", [])
+            if authors_list and isinstance(authors_list, list):
+                # Join multiple authors
+                author = ", ".join(
+                    a.get("name", "") if isinstance(a, dict) else str(a)
+                    for a in authors_list
+                )
+            else:
+                author = None
+
+            # Extract IDA versions
+            ida_versions = plugin_data.get("idaVersions", [])
+            ida_version_min = ida_versions[0] if ida_versions else None
+            ida_version_max = ida_versions[-1] if ida_versions else None
+
+            return PluginMetadata(
+                name=plugin_data.get("name", ""),
+                version=plugin_data.get("version"),
+                description=plugin_data.get("description"),
+                author=author,
+                ida_version_min=ida_version_min,
+                ida_version_max=ida_version_max,
+                dependencies=plugin_data.get("pythonDependencies", []),
+                entry_point=plugin_data.get("entryPoint"),
+            )
+        else:
+            # Legacy/custom format (direct fields)
+            return PluginMetadata(
+                name=json_content.get("name", ""),
+                version=json_content.get("version"),
+                description=json_content.get("description"),
+                author=json_content.get("author"),
+                ida_version_min=json_content.get("ida_version_min"),
+                ida_version_max=json_content.get("ida_version_max"),
+                dependencies=json_content.get("dependencies", []),
+                entry_point=json_content.get("entry_point"),
+            )
 
     def detect_plugin_type(self, contents: List[GitHubContentItem]) -> Optional[PluginType]:
         """
@@ -242,6 +288,7 @@ class RepoParser:
         return ValidationResult(
             valid=True,
             plugin_type=PluginType.MODERN,
+            metadata=metadata,
             warnings=warnings
         )
 
@@ -266,6 +313,7 @@ class RepoParser:
         return ValidationResult(
             valid=True,
             plugin_type=PluginType.LEGACY,
+            metadata=metadata,
             warnings=warnings
         )
 

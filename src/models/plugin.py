@@ -24,6 +24,22 @@ class CompatibilityStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class PluginStatus(str, Enum):
+    """Plugin installation status."""
+
+    NOT_INSTALLED = "not_installed"
+    INSTALLED = "installed"
+    FAILED = "failed"
+
+
+class InstallationMethod(str, Enum):
+    """How plugin was installed."""
+
+    CLONE = "clone"  # Development version (commit hash)
+    RELEASE = "release"  # Stable release (version tag)
+    UNKNOWN = "unknown"
+
+
 class Plugin(BaseModel):
     """
     Plugin data model.
@@ -46,6 +62,12 @@ class Plugin(BaseModel):
     is_active: bool = Field(True, description="Whether plugin is active")
     install_path: Optional[str] = Field(None, description="Installation path")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata")
+    status: PluginStatus = Field(default=PluginStatus.NOT_INSTALLED, description="Installation status")
+    installation_method: InstallationMethod = Field(default=InstallationMethod.UNKNOWN, description="How plugin was installed")
+    error_message: Optional[str] = Field(None, description="Error message if installation failed")
+    added_at: Optional[datetime] = Field(None, description="When plugin was added to catalog")
+    last_updated_at: Optional[datetime] = Field(None, description="Last time plugin was updated on GitHub")
+    tags: List[str] = Field(default_factory=list, description="Plugin tags (e.g., debugger, decompiler)")
 
     model_config = ConfigDict(
         use_enum_values=True,
@@ -88,6 +110,7 @@ class ValidationResult(BaseModel):
 
     valid: bool = Field(..., description="Whether validation passed")
     plugin_type: Optional[PluginType] = Field(None, description="Detected plugin type")
+    metadata: Optional[PluginMetadata] = Field(None, description="Parsed plugin metadata")
     error: Optional[str] = Field(None, description="Error message if validation failed")
     warnings: List[str] = Field(default_factory=list, description="Validation warnings")
 
@@ -105,6 +128,8 @@ class InstallationResult(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
     previous_version: Optional[str] = Field(None, description="Previous version if updated")
     new_version: Optional[str] = Field(None, description="New version installed")
+    plugin_type: Optional[PluginType] = Field(None, description="Detected plugin type")
+    metadata: Optional[PluginMetadata] = Field(None, description="Parsed plugin metadata")
 
 
 class UpdateInfo(BaseModel):

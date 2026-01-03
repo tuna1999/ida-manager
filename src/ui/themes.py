@@ -71,6 +71,20 @@ class DarkTheme(Theme):
             "table_border_dark": (40, 40, 40, 255),
             "row_hovered": (50, 50, 50, 255),
             "row_alternate": (35, 35, 35, 255),
+
+            # Badge colors (for plugin status and installation method)
+            "badge_installed": (80, 180, 80, 255),
+            "badge_not_installed": (180, 180, 80, 255),
+            "badge_failed": (180, 80, 80, 255),
+            "badge_clone": (80, 140, 220, 255),
+            "badge_release": (80, 180, 120, 255),
+            "badge_unknown": (150, 150, 150, 255),
+
+            # UI element colors
+            "border": (70, 70, 70, 255),
+            "separator": (60, 60, 60, 255),
+            "dim_text": (140, 140, 140, 255),
+            "link_text": (100, 160, 230, 255),
         }
 
 
@@ -129,6 +143,20 @@ class LightTheme(Theme):
             "table_border_dark": (220, 220, 220, 255),
             "row_hovered": (230, 230, 230, 255),
             "row_alternate": (245, 245, 245, 255),
+
+            # Badge colors (for plugin status and installation method)
+            "badge_installed": (60, 140, 60, 255),
+            "badge_not_installed": (160, 140, 40, 255),
+            "badge_failed": (180, 60, 60, 255),
+            "badge_clone": (60, 120, 200, 255),
+            "badge_release": (60, 150, 90, 255),
+            "badge_unknown": (140, 140, 140, 255),
+
+            # UI element colors
+            "border": (180, 180, 180, 255),
+            "separator": (200, 200, 200, 255),
+            "dim_text": (120, 120, 120, 255),
+            "link_text": (50, 100, 180, 255),
         }
 
 
@@ -226,3 +254,96 @@ def get_status_color(status: str, theme: str = "Dark") -> Tuple[int, int, int, i
     theme_class = DarkTheme if theme == "Dark" else LightTheme
     colors = theme_class.get_colors()
     return colors.get(status, colors["info"])
+
+
+def get_theme_color(color_name: str, theme: str = "Dark") -> Tuple[int, int, int, int]:
+    """
+    Get theme color by name.
+
+    Args:
+        color_name: Name of the color (e.g., "badge_installed", "border")
+        theme: Theme name ("Dark" or "Light")
+
+    Returns:
+        RGB color tuple, or dim gray if color not found
+    """
+    theme_class = DarkTheme if theme == "Dark" else LightTheme
+    colors = theme_class.get_colors()
+
+    # Return the color if found, otherwise return dim_text
+    return colors.get(color_name, colors.get("dim_text", (120, 120, 120, 255)))
+
+
+def apply_theme_to_table(table_tag: str, theme: str = "Dark") -> None:
+    """
+    Apply theme colors to a table widget.
+
+    Args:
+        table_tag: Tag of the table widget
+        theme: Theme name ("Dark" or "Light")
+    """
+    try:
+        import dearpygui.dearpygui as dpg
+    except ImportError:
+        return
+
+    if not dpg.does_item_exist(table_tag):
+        return
+
+    theme_class = DarkTheme if theme == "Dark" else LightTheme
+    colors = theme_class.get_colors()
+
+    # Create or get table-specific theme
+    table_theme_tag = f"{table_tag}_theme"
+
+    # Delete existing theme if it exists
+    if dpg.does_item_exist(table_theme_tag):
+        dpg.delete_item(table_theme_tag)
+
+    # Apply theme to table
+    with dpg.theme(tag=table_theme_tag):
+        with dpg.theme_component(dpg.mvTable, id=dpg.mvReservedUUID_2):
+            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, colors["table_header_bg"])
+            dpg.add_theme_color(dpg.mvThemeCol_TableBorderLight, colors["table_border_light"])
+            dpg.add_theme_color(dpg.mvThemeCol_TableBorderDark, colors["table_border_dark"])
+            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg, colors["row_alternate"])
+            dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, colors["window_bg"])
+            dpg.add_theme_color(dpg.mvThemeCol_Header, colors["header"])
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, colors["header_hovered"])
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, colors["header_active"])
+            dpg.add_theme_color(dpg.mvThemeCol_SelectableHovered, colors["row_hovered"])
+
+    dpg.bind_theme(table_theme_tag)
+
+
+# Global variable to track current theme
+_current_theme: str = "Dark"
+
+
+def switch_theme(new_theme: str) -> None:
+    """
+    Switch application theme at runtime.
+
+    Args:
+        new_theme: New theme name ("Dark" or "Light")
+    """
+    global _current_theme
+
+    # Validate theme name
+    if new_theme not in ("Dark", "Light"):
+        return
+
+    _current_theme = new_theme
+
+    # Re-apply global theme
+    apply_theme(new_theme)
+
+
+def get_current_theme() -> str:
+    """
+    Get the current active theme.
+
+    Returns:
+        Current theme name ("Dark" or "Light")
+    """
+    return _current_theme

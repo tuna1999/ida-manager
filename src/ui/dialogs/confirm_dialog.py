@@ -4,7 +4,10 @@ Confirmation dialog for IDA Plugin Manager.
 A generic modal dialog for confirming user actions.
 """
 
+import uuid
 from typing import Optional, Callable
+
+from src.ui.spacing import Spacing
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -29,6 +32,8 @@ class ConfirmDialog:
             dpg: Dear PyGui module reference
         """
         self.dpg = dpg
+        # Generate unique instance ID for UUID-based tags
+        self._instance_id = str(uuid.uuid4())[:8]
         self._dialog_id: Optional[int] = None
         self._result: Optional[bool] = None
         self._on_yes_callback: Optional[Callable] = None
@@ -55,22 +60,24 @@ class ConfirmDialog:
         self._on_yes_callback = on_yes
         self._on_no_callback = on_no
 
+        # Use UUID-based tag for dialog window
+        dialog_tag = f"confirm_dialog_{self._instance_id}"
         with self.dpg.window(label=title, modal=True,
-                            tag="confirm_dialog", width=400, height=200,
+                            tag=dialog_tag, width=400, height=200,
                             pos=(150, 150)):
-            self._dialog_id = "confirm_dialog"
+            self._dialog_id = dialog_tag
 
-            self.dpg.add_spacer(height=20)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Main message
             self.dpg.add_text(message, wrap=380)
 
             # Detail text (if provided)
             if detail:
-                self.dpg.add_spacer(height=10)
+                self.dpg.add_spacer(height=Spacing.SM)
                 self.dpg.add_text(detail, color=(150, 150, 150, 255), wrap=380)
 
-            self.dpg.add_spacer(height=30)
+            self.dpg.add_spacer(height=Spacing.XL)
 
             # Yes/No buttons
             with self.dpg.group(horizontal=True):

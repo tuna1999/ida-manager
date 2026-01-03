@@ -16,7 +16,13 @@ from src.core.version_manager import VersionManager
 from src.github.client import GitHubClient
 from src.github.repo_parser import RepoParser
 from src.models.github_info import GitHubRepo, GitHubRelease
-from src.models.plugin import InstallationResult, Plugin, PluginType, ValidationResult
+from src.models.plugin import (
+    InstallationResult,
+    Plugin,
+    PluginMetadata,
+    PluginType,
+    ValidationResult,
+)
 from src.utils.file_ops import (
     backup_directory,
     cleanup_temp_directory,
@@ -65,6 +71,8 @@ class PluginInstaller:
         repo_url: str,
         destination: Path,
         branch: str = "main",
+        plugin_type: Optional[PluginType] = None,
+        metadata: Optional[PluginMetadata] = None,
     ) -> InstallationResult:
         """
         Install plugin by cloning GitHub repository.
@@ -73,6 +81,8 @@ class PluginInstaller:
             repo_url: GitHub repository URL
             destination: Installation destination path
             branch: Branch to clone (default: "main")
+            plugin_type: Detected plugin type (optional)
+            metadata: Parsed plugin metadata (optional)
 
         Returns:
             InstallationResult with operation status
@@ -102,6 +112,20 @@ class PluginInstaller:
         logger.info(f"Installing plugin from GitHub clone: {plugin_id}")
 
         try:
+            # Check if destination already exists and handle it
+            if destination.exists():
+                logger.info(f"Destination directory already exists: {destination}")
+                # Try to delete it first
+                result = safe_delete_directory(destination)
+                if not result.success:
+                    return InstallationResult(
+                        success=False,
+                        plugin_id=plugin_id,
+                        message="Failed to remove existing installation",
+                        error=f"Could not delete existing directory: {result.error}",
+                    )
+                logger.info(f"Removed existing directory: {destination}")
+
             # Clone repository
             success = self.github_client.clone_repository(repo_url, destination, branch)
 
@@ -126,13 +150,19 @@ class PluginInstaller:
                     error=validation.error,
                 )
 
+            # Get commit hash for version tracking
+            commit_hash = self.github_client.get_commit_hash(destination)
+            version = commit_hash or self._extract_version_from_clone(destination)
+
             # Success
             logger.info(f"Successfully installed {plugin_id} from clone")
             return InstallationResult(
                 success=True,
                 plugin_id=plugin_id,
                 message=f"Successfully installed {repo_name}",
-                new_version=self._extract_version_from_clone(destination),
+                new_version=version,
+                plugin_type=plugin_type,
+                metadata=metadata,
             )
 
         except Exception as e:
@@ -150,6 +180,8 @@ class PluginInstaller:
         repo_url: str,
         release: GitHubRelease,
         destination: Path,
+        plugin_type: Optional[PluginType] = None,
+        metadata: Optional[PluginMetadata] = None,
     ) -> InstallationResult:
         """
         Install plugin from GitHub release.
@@ -158,6 +190,8 @@ class PluginInstaller:
             repo_url: GitHub repository URL
             release: Release to install
             destination: Installation destination path
+            plugin_type: Detected plugin type (optional)
+            metadata: Parsed plugin metadata (optional)
 
         Returns:
             InstallationResult with operation status
@@ -254,6 +288,8 @@ class PluginInstaller:
                     plugin_id=plugin_id,
                     message=f"Successfully installed {repo_name} {version}",
                     new_version=version,
+                    plugin_type=plugin_type,
+                    metadata=metadata,
                 )
 
             finally:

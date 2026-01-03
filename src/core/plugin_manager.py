@@ -1,7 +1,10 @@
 """
 Core plugin management orchestration.
 
-Coordinates plugin scanning, installation, updates, and database operations.
+DEPRECATED: This class now delegates to PluginService.
+Maintained for backwards compatibility.
+
+New code should use PluginService directly.
 """
 
 from pathlib import Path
@@ -14,7 +17,14 @@ from src.database.db_manager import DatabaseManager
 from src.database.models import Plugin as DBPlugin
 from src.github.client import GitHubClient
 from src.models.github_info import GitHubRepo, GitHubRelease
-from src.models.plugin import InstallationResult, Plugin, PluginType, UpdateInfo
+from src.models.plugin import (
+    InstallationResult,
+    Plugin,
+    PluginMetadata,
+    PluginType,
+    UpdateInfo,
+)
+from src.services.plugin_service import PluginService
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -24,11 +34,10 @@ class PluginManager:
     """
     Central plugin management orchestrator.
 
-    Coordinates all plugin operations:
-    - Scanning local plugins
-    - Managing installation/uninstallation
-    - Checking for updates
-    - Database synchronization
+    DEPRECATED: This class now delegates to PluginService.
+    All operations are forwarded to the service layer.
+
+    For new code, use PluginService directly instead.
     """
 
     def __init__(
@@ -54,6 +63,20 @@ class PluginManager:
         self.github_client = github_client or GitHubClient()
         self.version_manager = version_manager or VersionManager()
         self.installer = installer or PluginInstaller(self.github_client, self.version_manager)
+
+        # Create service layer for delegation
+        self._service = PluginService(
+            db_manager=db_manager,
+            github_client=self.github_client,
+            ida_detector=self.ida_detector,
+            installer=self.installer,
+            version_manager=self.version_manager,
+        )
+
+        logger.warning(
+            "PluginManager is deprecated and now delegates to PluginService. "
+            "Use PluginService directly in new code."
+        )
 
     def scan_local_plugins(self) -> List[Plugin]:
         """
@@ -104,8 +127,7 @@ class PluginManager:
         Returns:
             List of installed plugins
         """
-        db_plugins = self.db.get_installed_plugins()
-        return [self._db_to_model(p) for p in db_plugins]
+        return self._service.get_installed_plugins()
 
     def get_all_plugins(self) -> List[Plugin]:
         """
@@ -114,8 +136,19 @@ class PluginManager:
         Returns:
             List of all plugins
         """
-        db_plugins = self.db.get_all_plugins()
-        return [self._db_to_model(p) for p in db_plugins]
+        return self._service.get_all_plugins()
+
+    def get_plugin(self, plugin_id: str) -> Optional[Plugin]:
+        """
+        Get a plugin by ID.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Plugin or None
+        """
+        return self._service.get_plugin(plugin_id)
 
     def install_plugin(
         self,
@@ -123,6 +156,8 @@ class PluginManager:
         method: str = "clone",
         branch: str = "main",
         version: Optional[str] = None,
+        plugin_type: Optional[PluginType] = None,
+        metadata: Optional[PluginMetadata] = None,
     ) -> InstallationResult:
         """
         Install a plugin from GitHub.
@@ -132,113 +167,19 @@ class PluginManager:
             method: Installation method ('clone' or 'release')
             branch: Branch to clone (for clone method)
             version: Version to install (for release method)
+            plugin_type: Detected plugin type (optional)
+            metadata: Parsed plugin metadata (optional)
 
         Returns:
             InstallationResult
         """
-        from src.utils.validators import parse_github_url
-
-        parsed = parse_github_url(repo_url)
-        if not parsed:
-            return InstallationResult(
-                success=False,
-                plugin_id="",
-                message="Invalid GitHub URL",
-                error="Could not parse repository URL",
-            )
-
-        owner, repo_name = parsed
-        plugin_id = f"{owner}/{repo_name}"
-
-        logger.info(f"Installing plugin: {plugin_id} (method: {method})")
-
-        # Find IDA installation
-        ida_path = self.ida_detector.find_ida_installation()
-        if not ida_path:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="IDA Pro installation not found",
-                error="Could not detect IDA Pro installation",
-            )
-
-        # Get plugin directory
-        plugin_dir = self.ida_detector.get_plugin_directory(ida_path)
-        install_path = plugin_dir / repo_name
-
-        # Check if already installed
-        existing = self.db.get_plugin(plugin_id)
-        if existing:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="Plugin already installed",
-                error=f"Plugin {plugin_id} is already installed",
-                previous_version=existing.installed_version,
-            )
-
-        # Install using specified method
-        result: InstallationResult
-
-        if method == "clone":
-            result = self.installer.install_from_github_clone(repo_url, install_path, branch)
-
-        elif method == "release":
-            # Fetch releases
-            releases = self.github_client.get_releases(owner, repo_name)
-
-            if not releases:
-                return InstallationResult(
-                    success=False,
-                    plugin_id=plugin_id,
-                    message="No releases found",
-                    error="Repository has no releases",
-                )
-
-            # Find target release
-            target_release = None
-            if version:
-                for r in releases:
-                    if version in r.tag_name:
-                        target_release = r
-                        break
-            else:
-                # Get latest stable
-                target_release = next(
-                    (r for r in releases if not r.prerelease),
-                    releases[0]
-                )
-
-            if not target_release:
-                return InstallationResult(
-                    success=False,
-                    plugin_id=plugin_id,
-                    message="Release not found",
-                    error=f"Version {version} not found",
-                )
-
-            result = self.installer.install_from_github_release(repo_url, target_release, install_path)
-
-        else:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="Invalid installation method",
-                error=f"Unknown method: {method}",
-            )
-
-        # Update database if successful
-        if result.success:
-            self._add_plugin_to_database(
-                plugin_id=plugin_id,
-                name=repo_name,
-                repository_url=repo_url,
-                install_path=str(install_path),
-                version=result.new_version,
-                plugin_type=result.data.get("plugin_type") if isinstance(result.data, dict) else None,
-            )
-
-        return result
+        return self._service.install_plugin(
+            url=repo_url,
+            method=method,
+            branch=branch,
+            plugin_type=plugin_type,
+            metadata=metadata,
+        )
 
     def uninstall_plugin(self, plugin_id: str, backup: bool = True) -> InstallationResult:
         """
@@ -251,33 +192,7 @@ class PluginManager:
         Returns:
             InstallationResult
         """
-        logger.info(f"Uninstalling plugin: {plugin_id}")
-
-        db_plugin = self.db.get_plugin(plugin_id)
-        if not db_plugin:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="Plugin not found",
-                error="Plugin is not installed",
-            )
-
-        plugin = self._db_to_model(db_plugin)
-        result = self.installer.uninstall_plugin(plugin, backup)
-
-        if result.success:
-            # Update database
-            self.db.log_installation(
-                plugin_id=plugin_id,
-                action="uninstall",
-                version=plugin.installed_version,
-                success=True,
-            )
-
-            # Remove from database or mark as uninstalled
-            self.db.delete_plugin(plugin_id)
-
-        return result
+        return self._service.uninstall_plugin(plugin_id, backup)
 
     def update_plugin(self, plugin_id: str) -> InstallationResult:
         """
@@ -289,85 +204,7 @@ class PluginManager:
         Returns:
             InstallationResult
         """
-        logger.info(f"Updating plugin: {plugin_id}")
-
-        db_plugin = self.db.get_plugin(plugin_id)
-        if not db_plugin:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="Plugin not installed",
-            )
-
-        plugin = self._db_to_model(db_plugin)
-
-        # Check for updates
-        update_info = self.check_updates(plugin_id)
-        if not update_info or not update_info.has_update:
-            return InstallationResult(
-                success=True,
-                plugin_id=plugin_id,
-                message="Plugin is already up to date",
-            )
-
-        # Uninstall current version
-        self.uninstall_plugin(plugin_id, backup=True)
-
-        # Install new version
-        from src.utils.validators import parse_github_url
-
-        repo_url = plugin.repository_url
-        parsed = parse_github_url(repo_url) if repo_url else None
-
-        if not parsed:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="Invalid repository URL",
-            )
-
-        owner, repo_name = parsed
-
-        # Get target release
-        releases = self.github_client.get_releases(owner, repo_name)
-        target_release = None
-
-        for r in releases:
-            if update_info.latest_version in r.tag_name:
-                target_release = r
-                break
-
-        if not target_release:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="Update version not found",
-            )
-
-        # Install new version
-        ida_path = self.ida_detector.find_ida_installation()
-        if not ida_path:
-            return InstallationResult(
-                success=False,
-                plugin_id=plugin_id,
-                message="IDA Pro not found",
-            )
-
-        plugin_dir = self.ida_detector.get_plugin_directory(ida_path)
-        install_path = plugin_dir / repo_name
-
-        result = self.installer.install_from_github_release(repo_url, target_release, install_path)
-
-        if result.success:
-            # Log update
-            self.db.log_installation(
-                plugin_id=plugin_id,
-                action="update",
-                version=result.new_version,
-                success=True,
-            )
-
-        return result
+        return self._service.update_plugin(plugin_id)
 
     def check_updates(self, plugin_id: str) -> Optional[UpdateInfo]:
         """
@@ -379,42 +216,7 @@ class PluginManager:
         Returns:
             UpdateInfo or None
         """
-        db_plugin = self.db.get_plugin(plugin_id)
-        if not db_plugin or not db_plugin.repository_url:
-            return None
-
-        from src.utils.validators import parse_github_url
-
-        parsed = parse_github_url(db_plugin.repository_url)
-        if not parsed:
-            return None
-
-        owner, repo_name = parsed
-
-        # Fetch latest release
-        latest_release = self.github_client.get_latest_release(owner, repo_name)
-
-        if not latest_release:
-            return None
-
-        # Extract version
-        from src.github.release_fetcher import ReleaseFetcher
-
-        fetcher = ReleaseFetcher()
-        latest_version = fetcher.extract_version(latest_release.tag_name)
-
-        # Compare versions
-        has_update = False
-        if db_plugin.installed_version:
-            has_update = self.version_manager.is_version_newer(db_plugin.installed_version, latest_version)
-
-        return UpdateInfo(
-            has_update=has_update,
-            current_version=db_plugin.installed_version,
-            latest_version=latest_version,
-            changelog=fetcher.get_changelog(latest_release),
-            release_url=latest_release.html_url,
-        )
+        return self._service.check_plugin_update(plugin_id)
 
     def check_all_updates(self) -> List[UpdateInfo]:
         """
@@ -423,15 +225,7 @@ class PluginManager:
         Returns:
             List of UpdateInfo objects
         """
-        updates = []
-
-        for plugin in self.get_installed_plugins():
-            if plugin.repository_url:
-                info = self.check_updates(plugin.id)
-                if info and info.has_update:
-                    updates.append(info)
-
-        return updates
+        return self._service.check_updates()
 
     # ============ Private Methods ============
 
@@ -499,55 +293,4 @@ class PluginManager:
             plugin_type=PluginType.LEGACY,
             install_path=str(path),
             is_active=True,
-        )
-
-    def _add_plugin_to_database(
-        self,
-        plugin_id: str,
-        name: str,
-        repository_url: str,
-        install_path: str,
-        version: Optional[str],
-        plugin_type: Optional[PluginType] = None,
-    ) -> None:
-        """Add plugin to database."""
-        from datetime import datetime
-
-        db_plugin = DBPlugin(
-            id=plugin_id,
-            name=name,
-            repository_url=repository_url,
-            install_path=install_path,
-            installed_version=version,
-            plugin_type=plugin_type or PluginType.LEGACY,
-            install_date=datetime.utcnow(),
-            is_active=True,
-        )
-
-        self.db.add_plugin(db_plugin)
-        self.db.log_installation(
-            plugin_id=plugin_id,
-            action="install",
-            version=version,
-            success=True,
-        )
-
-    def _db_to_model(self, db_plugin: DBPlugin) -> Plugin:
-        """Convert database model to Pydantic model."""
-        return Plugin(
-            id=db_plugin.id,
-            name=db_plugin.name,
-            description=db_plugin.description,
-            author=db_plugin.author,
-            repository_url=db_plugin.repository_url,
-            installed_version=db_plugin.installed_version,
-            latest_version=db_plugin.latest_version,
-            install_date=db_plugin.install_date,
-            last_updated=db_plugin.last_updated,
-            plugin_type=db_plugin.plugin_type,
-            ida_version_min=db_plugin.ida_version_min,
-            ida_version_max=db_plugin.ida_version_max,
-            is_active=db_plugin.is_active,
-            install_path=db_plugin.install_path,
-            metadata={},
         )

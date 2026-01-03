@@ -32,20 +32,50 @@ class Migration:
 
 # Define migrations
 MIGRATIONS: List[Migration] = [
-    # Future migrations go here
-    # Example:
-    # Migration(
-    #     version=2,
-    #     name="Add plugin ratings",
-    #     up_sql="""
-    #         ALTER TABLE plugins ADD COLUMN rating INTEGER DEFAULT 0;
-    #         ALTER TABLE plugins ADD COLUMN downloads INTEGER DEFAULT 0;
-    #     """,
-    #     down_sql="""
-    #         ALTER TABLE plugins DROP COLUMN rating;
-    #         ALTER TABLE plugins DROP COLUMN downloads;
-    #     """
-    # ),
+    Migration(
+        version=2,
+        name="Add plugin catalog management fields",
+        up_sql="""
+            -- Add status column
+            ALTER TABLE plugins ADD COLUMN status VARCHAR(20) DEFAULT 'not_installed' NOT NULL;
+
+            -- Add installation_method column
+            ALTER TABLE plugins ADD COLUMN installation_method VARCHAR(10);
+
+            -- Add error_message column
+            ALTER TABLE plugins ADD COLUMN error_message TEXT;
+
+            -- Add added_at column
+            ALTER TABLE plugins ADD COLUMN added_at DATETIME;
+
+            -- Add last_updated_at column
+            ALTER TABLE plugins ADD COLUMN last_updated_at DATETIME;
+
+            -- Add tags column (JSON array)
+            ALTER TABLE plugins ADD COLUMN tags JSON;
+
+            -- Create indexes for performance
+            CREATE INDEX IF NOT EXISTS idx_plugin_status ON plugins(status);
+            CREATE INDEX IF NOT EXISTS idx_last_updated ON plugins(last_updated_at);
+
+            -- Update existing installed plugins to have status='installed'
+            UPDATE plugins SET status='installed' WHERE installed_version IS NOT NULL;
+        """,
+        down_sql="""
+            -- Drop indexes
+            DROP INDEX IF EXISTS idx_last_updated;
+            DROP INDEX IF NOT EXISTS idx_plugin_status;
+
+            -- Drop columns (SQLite doesn't support DROP COLUMN in older versions,
+            -- but we'll include it for completeness)
+            ALTER TABLE plugins DROP COLUMN tags;
+            ALTER TABLE plugins DROP COLUMN last_updated_at;
+            ALTER TABLE plugins DROP COLUMN added_at;
+            ALTER TABLE plugins DROP COLUMN error_message;
+            ALTER TABLE plugins DROP COLUMN installation_method;
+            ALTER TABLE plugins DROP COLUMN status;
+        """
+    ),
 ]
 
 
@@ -201,3 +231,35 @@ class MigrationManager:
             print(f"Pending migrations: {[m.version for m in pending]}")
         else:
             print("Database is up to date")
+
+
+if __name__ == "__main__":
+    import sys
+
+    manager = MigrationManager()
+
+    # Check command line arguments
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+
+        if command == "status":
+            manager.status()
+        elif command == "migrate":
+            target = int(sys.argv[2]) if len(sys.argv) > 2 else None
+            success = manager.migrate(target)
+            if not success:
+                sys.exit(1)
+        else:
+            print(f"Unknown command: {command}")
+            print("Usage: python -m src.database.migrations [status|migrate [version]]")
+            sys.exit(1)
+    else:
+        # Default: run migrations
+        print("Running database migrations...")
+        success = manager.migrate()
+        if success:
+            print("\nMigration status:")
+            manager.status()
+        else:
+            print("Migration failed!")
+            sys.exit(1)

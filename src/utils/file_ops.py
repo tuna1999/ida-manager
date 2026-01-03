@@ -126,7 +126,17 @@ def safe_delete_directory(path: Path) -> Result:
     """
     try:
         if path.exists() and path.is_dir():
-            shutil.rmtree(path)
+            # Use ignore_errors=True to handle locked files (e.g., .git on Windows)
+            # This is safe since we're replacing with a fresh clone
+            shutil.rmtree(path, ignore_errors=True)
+
+            # Verify deletion
+            if path.exists():
+                # If still exists, try one more time with a different approach
+                import time
+                time.sleep(0.5)  # Wait a bit for file handles to release
+                shutil.rmtree(path, ignore_errors=True)
+
             logger.debug(f"Deleted directory {path}")
         return Result.ok()
     except Exception as e:

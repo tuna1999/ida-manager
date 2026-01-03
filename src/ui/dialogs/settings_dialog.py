@@ -8,8 +8,11 @@ Allows users to configure application settings including:
 - Update settings
 """
 
+import os
 import uuid
 from typing import Optional, List
+
+from src.ui.spacing import Spacing
 from src.utils.logger import get_logger
 
 # Import tkinter for native file dialog (bypasses Dear PyGui limitations)
@@ -30,7 +33,7 @@ class SettingsDialog:
     - Auto-update configuration
     """
 
-    def __init__(self, dpg, settings_manager, ida_detector, status_panel):
+    def __init__(self, dpg, settings_manager, ida_detector, status_panel, font_manager=None):
         """
         Initialize the dialog.
 
@@ -39,11 +42,13 @@ class SettingsDialog:
             settings_manager: SettingsManager instance
             ida_detector: IDADetector for finding installations
             status_panel: StatusPanel for feedback
+            font_manager: Optional FontManager for applying font changes
         """
         self.dpg = dpg
         self.settings_manager = settings_manager
         self.ida_detector = ida_detector
         self.status_panel = status_panel
+        self.font_manager = font_manager
         self._dialog_id: Optional[int] = None
         self._found_installations: List[tuple] = []
 
@@ -59,6 +64,9 @@ class SettingsDialog:
         self._auto_update_tag = f"settings_auto_update_{self._instance_id}"
         self._update_interval_tag = f"settings_update_interval_{self._instance_id}"
         self._file_dialog_tag = f"ida_file_dialog_{self._instance_id}"
+        # Font tags disabled - not used in UI currently
+        # self._font_family_tag = f"settings_font_family_{self._instance_id}"
+        # self._font_size_tag = f"settings_font_size_{self._instance_id}"
 
     def show(self) -> None:
         """Show the settings dialog."""
@@ -73,7 +81,7 @@ class SettingsDialog:
                             pos=(80, 50)):
             self._dialog_id = dialog_tag
 
-            self.dpg.add_spacer(height=10)
+            self.dpg.add_spacer(height=Spacing.SM)
 
             # Create tab bar for different settings categories
             with self.dpg.tab_bar(tag=f"settings_tab_bar_{self._instance_id}"):
@@ -93,9 +101,9 @@ class SettingsDialog:
                 with self.dpg.tab(label="Updates"):
                     self._create_updates_tab()
 
-            self.dpg.add_spacer(height=10)
+            self.dpg.add_spacer(height=Spacing.SM)
             self.dpg.add_separator()
-            self.dpg.add_spacer(height=10)
+            self.dpg.add_spacer(height=Spacing.SM)
 
             # Action buttons
             with self.dpg.group(horizontal=True):
@@ -108,9 +116,9 @@ class SettingsDialog:
 
     def _create_ida_tab(self) -> None:
         """Create IDA configuration tab."""
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
         self.dpg.add_text("IDA Installation Path", color=(200, 200, 200, 255))
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
 
         # Path input with browse button
         with self.dpg.group(horizontal=True):
@@ -121,14 +129,14 @@ class SettingsDialog:
             )
             self.dpg.add_button(label="Browse...", callback=self._on_browse_ida, width=80)
 
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
 
         # Auto-detect button
         with self.dpg.group(horizontal=True):
             self.dpg.add_button(label="Auto-Detect", callback=self._on_auto_detect_ida, width=100)
             self.dpg.add_text("", tag=f"ida_detect_status_{self._instance_id}")
 
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
 
         # Found installations combo (hidden initially)
         with self.dpg.group(tag=f"ida_installations_group_{self._instance_id}", show=False):
@@ -140,28 +148,28 @@ class SettingsDialog:
                 callback=self._on_installation_selected
             )
 
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
         self.dpg.add_text("Detected Version:", tag=f"ida_version_label_{self._instance_id}")
         self.dpg.add_text("Not detected", tag=f"ida_version_value_{self._instance_id}")
 
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
         self.dpg.add_separator()
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
         self.dpg.add_text("IDA User Directory (IDAUSR)", color=(200, 200, 200, 255))
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
         self.dpg.add_text("User plugins are installed in $IDAUSR/plugins", color=(150, 150, 150, 255))
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
         self.dpg.add_text("IDAUSR:", tag=f"idausr_label_{self._instance_id}")
         self.dpg.add_text("Loading...", tag=f"idausr_value_{self._instance_id}")
 
     def _create_github_tab(self) -> None:
         """Create GitHub settings tab."""
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
         self.dpg.add_text("GitHub Personal Access Token", color=(200, 200, 200, 255))
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
         self.dpg.add_text("(Optional) Increases API rate limits", color=(150, 150, 150, 255))
 
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
 
         # Token input (password field)
         self.dpg.add_input_text(
@@ -171,14 +179,14 @@ class SettingsDialog:
             width=400
         )
 
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
 
         # Validate button
         with self.dpg.group(horizontal=True):
             self.dpg.add_button(label="Validate Token", callback=self._on_validate_token, width=120)
             self.dpg.add_text("", tag=f"token_validate_status_{self._instance_id}")
 
-        self.dpg.add_spacer(height=15)
+        self.dpg.add_spacer(height=Spacing.MD)
 
         # Help text
         self.dpg.add_text("How to create a GitHub token:")
@@ -189,11 +197,11 @@ class SettingsDialog:
 
     def _create_ui_tab(self) -> None:
         """Create UI preferences tab."""
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
 
         # Theme selection
         self.dpg.add_text("Theme:")
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
         self.dpg.add_combo(
             items=["Dark", "Light"],
             tag=self._theme_combo_tag,
@@ -201,11 +209,47 @@ class SettingsDialog:
             default_value="Dark"
         )
 
-        self.dpg.add_spacer(height=15)
+        self.dpg.add_spacer(height=Spacing.MD)
+
+        # Font settings - DISABLED due to Dear PyGui 2.1.1 limitations
+        # TODO: Re-enable when Dear PyGui font loading is fixed or we find a workaround
+        # self.dpg.add_text("Font:")
+        # self.dpg.add_spacer(height=Spacing.XS)
+        #
+        # # Font family combo
+        # import platform
+        # system = platform.system()
+        # if system == "Windows":
+        #     fonts = ["Segoe UI", "Arial", "Calibri", "Consolas"]
+        # elif system == "Darwin":  # macOS
+        #     fonts = ["SF Pro Display", "Helvetica", "Arial", "SF Mono"]
+        # else:  # Linux
+        #     fonts = ["Ubuntu", "Arial", "Liberation Sans", "Ubuntu Mono"]
+        #
+        # self.dpg.add_combo(
+        #     items=fonts,
+        #     tag=self._font_family_tag,
+        #     width=200,
+        #     default_value="Segoe UI"
+        # )
+        #
+        # self.dpg.add_spacer(height=Spacing.SM)
+        #
+        # # Font size
+        # self.dpg.add_text("Font Size:")
+        # self.dpg.add_spacer(height=Spacing.XS)
+        # self.dpg.add_combo(
+        #     items=["11", "13", "16", "20"],
+        #     tag=self._font_size_tag,
+        #     width=100,
+        #     default_value="13"
+        # )
+        #
+        # self.dpg.add_spacer(height=Spacing.MD)
 
         # Window size
         self.dpg.add_text("Window Size:")
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
         with self.dpg.group(horizontal=True):
             self.dpg.add_text("Width:")
             self.dpg.add_input_int(
@@ -225,7 +269,7 @@ class SettingsDialog:
 
     def _create_updates_tab(self) -> None:
         """Create update settings tab."""
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
 
         # Auto-update checkbox
         self.dpg.add_checkbox(
@@ -233,11 +277,11 @@ class SettingsDialog:
             tag=self._auto_update_tag
         )
 
-        self.dpg.add_spacer(height=10)
+        self.dpg.add_spacer(height=Spacing.SM)
 
         # Update interval
         self.dpg.add_text("Check Interval (hours):")
-        self.dpg.add_spacer(height=5)
+        self.dpg.add_spacer(height=Spacing.XS)
         self.dpg.add_input_int(
             tag=self._update_interval_tag,
             width=100,
@@ -270,6 +314,9 @@ class SettingsDialog:
         if self.dpg.does_item_exist(self._window_height_tag):
             height = self.settings_manager.config.ui.window_height or 700
             self.dpg.set_value(self._window_height_tag, height)
+
+        # Font settings disabled - UI components removed
+        # TODO: Re-enable when Dear PyGui font loading is fixed
 
         # Update settings
         if self.dpg.does_item_exist(self._auto_update_tag):
@@ -461,8 +508,16 @@ class SettingsDialog:
             self.settings_manager.config.updates.auto_check = auto_update
             self.settings_manager.config.updates.check_interval_hours = update_interval
 
-            # Save to file
+            # Save all settings
             self.settings_manager.save()
+
+            # Apply theme changes immediately (no restart needed)
+            try:
+                from src.ui.themes import switch_theme
+                switch_theme(theme)
+                logger.info(f"Theme switched to: {theme}")
+            except Exception as theme_error:
+                logger.warning(f"Failed to apply theme immediately: {theme_error}")
 
             self.status_panel.add_success("Settings saved successfully")
             self._close()

@@ -13,8 +13,12 @@ from src.core.plugin_manager import PluginManager
 from src.database.db_manager import DatabaseManager
 from src.models.plugin import Plugin
 from src.ui.plugin_browser import PluginBrowser
+from src.ui.spacing import Spacing
 from src.ui.status_panel import StatusPanel
-from src.ui.themes import apply_theme
+from src.ui.themes import apply_theme, get_theme_color
+from src.ui.components.split_view import SplitView
+from src.ui.components.advanced_search import AdvancedSearch
+from src.ui.font_manager import FontManager
 from src.ui.dialogs.settings_dialog import SettingsDialog
 from src.ui.dialogs.install_url_dialog import InstallURLDialog
 from src.ui.dialogs.about_dialog import AboutDialog
@@ -44,14 +48,40 @@ class MainWindow:
         self.db_manager.init_database()
 
         self.ida_detector = IDADetector()
+
+        # Create service layer
+        from src.services.plugin_service import PluginService
+        from src.github.client import GitHubClient
+        from src.core.installer import PluginInstaller
+        from src.core.version_manager import VersionManager
+
+        github_client = GitHubClient()
+        version_manager = VersionManager()
+        installer = PluginInstaller(github_client, version_manager)
+
+        self.plugin_service = PluginService(
+            db_manager=self.db_manager,
+            github_client=github_client,
+            ida_detector=self.ida_detector,
+            installer=installer,
+            version_manager=version_manager,
+        )
+
+        # Create plugin manager (for backwards compatibility)
         self.plugin_manager = PluginManager(
             db_manager=self.db_manager,
             ida_detector=self.ida_detector,
+            github_client=github_client,
+            version_manager=version_manager,
+            installer=installer,
         )
 
         # UI components
         self.status_panel = StatusPanel()
         self.plugin_browser = PluginBrowser()
+        self.split_view = SplitView(None, self.settings)  # dpg set later in run()
+        self.advanced_search = AdvancedSearch(None, self.settings)  # dpg set later in run()
+        self.font_manager = FontManager(self.settings)  # dpg set later in run()
 
         # Set up callbacks
         self._setup_browser_callbacks()
@@ -92,8 +122,13 @@ class MainWindow:
 
             self._dpg = dpg
 
-            # Create context
+            # Create context FIRST before using any dpg functions
             dpg.create_context()
+
+            # Now safe to update UI components with dpg reference and load fonts
+            self.split_view.dpg = dpg
+            self.advanced_search.dpg = dpg
+            self.font_manager.set_dpg(dpg)
 
             # Create viewport
             dpg.create_viewport(
@@ -101,6 +136,9 @@ class MainWindow:
                 width=self.settings.config.ui.window_width,
                 height=self.settings.config.ui.window_height,
             )
+
+            # Load fonts AFTER viewport is created (required by Dear PyGui)
+            self.font_manager.load_fonts()
 
             # Apply theme
             apply_theme(self.settings.config.ui.theme)
@@ -110,6 +148,13 @@ class MainWindow:
 
             # Set up as primary window
             dpg.set_primary_window("main_window", True)
+
+            # Set up viewport resize handler for responsive layout
+            def on_viewport_resize(sender, app_data, user_data):
+                """Handle viewport resize to recalculate layout."""
+                self._recalculate_layout()
+
+            dpg.set_viewport_resize_callback(on_viewport_resize)
 
             # Start
             dpg.setup_dearpygui()
@@ -132,24 +177,30 @@ class MainWindow:
         """Create main window UI."""
         dpg = self._dpg
 
-        with dpg.window(label="IDA Plugin Manager", tag="main_window", width=800, height=600):
+        # Calculate window size based on viewport (95% of viewport size)
+        viewport_width = dpg.get_viewport_width()
+        viewport_height = dpg.get_viewport_height()
+        window_width = int(viewport_width * 0.95)
+        window_height = int(viewport_height * 0.90)
+
+        with dpg.window(label="IDA Plugin Manager", tag="main_window", width=window_width, height=window_height):
             # Menu bar
             self._create_menu_bar()
 
             # Toolbar
             self._create_toolbar()
 
-            # Main content - use group instead of splitter for simplicity
-            dpg.add_spacer(height=10)
+            # Main content - use split view for plugins
+            dpg.add_spacer(height=Spacing.SM)
             with dpg.group(horizontal=True):
-                # Left panel - Filters
+                # Left panel - Filters (keep separate)
                 self._create_filter_panel()
 
-                # Right panel - Plugin list
-                self._create_plugin_list_panel()
+                # Right side - Split view with list and details
+                self._create_split_view_section()
 
             # Status bar
-            dpg.add_spacer(height=10)
+            dpg.add_spacer(height=Spacing.SM)
             self._create_status_bar()
 
     def _create_menu_bar(self) -> None:
@@ -168,6 +219,8 @@ class MainWindow:
             with dpg.menu(label="View"):
                 dpg.add_menu_item(label="Installed Only", callback=self._on_toggle_installed)
                 dpg.add_menu_item(label="Available Only", callback=self._on_toggle_available)
+                dpg.add_separator()
+                dpg.add_menu_item(label="Advanced Search...", callback=self._on_advanced_search)
                 dpg.add_separator()
                 dpg.add_menu_item(label="Sort by Name", callback=lambda: self._on_sort("name"))
                 dpg.add_menu_item(label="Sort by Version", callback=lambda: self._on_sort("version"))
@@ -193,39 +246,133 @@ class MainWindow:
             ida_version = self.settings.config.ida.version or "Not detected"
             dpg.add_text(f"IDA: {ida_version}")
 
-    def _create_filter_panel(self) -> None:
-        """Create filter panel."""
+
+    def _create_split_view_section(self) -> None:
+        """Create the split view section with list and details panes."""
         dpg = self._dpg
 
-        with dpg.child_window(label="Filters", width=250, height=400):
-            dpg.add_spacer(height=10)
+        # Calculate split view size (remaining space after filter panel)
+        viewport_width = dpg.get_viewport_width()
+        filter_width = min(280, int(viewport_width * 0.25))
+        split_view_width = viewport_width - filter_width - 60  # Remaining space with margins
+        split_view_height = dpg.get_viewport_height() - 200  # Account for toolbar/menu
+
+        # Create split view
+        self.split_view.create(
+            parent_tag="main_window",
+            width=split_view_width,
+            height=split_view_height
+        )
+
+        # Add plugin list to left pane
+        self._populate_plugin_list()
+
+        # Set up callbacks for actions in details pane
+        self.split_view.set_callbacks(
+            on_install=self._on_install_plugin,
+            on_update=self._on_update_plugin,
+            on_uninstall=self._on_uninstall_plugin
+        )
+
+    def _populate_plugin_list(self) -> None:
+        """Populate the plugin list in the split view's left pane."""
+        dpg = self._dpg
+        left_pane_tag = self.split_view.get_left_pane_tag()
+
+        if not dpg.does_item_exist(left_pane_tag):
+            logger.warning("Split view left pane not found")
+            return
+
+        # Set left pane as parent for table
+        plugins = self.plugin_browser.filtered_plugins
+
+        if not plugins:
+            with dpg.group(parent=left_pane_tag):
+                dpg.add_spacer(height=Spacing.MD)
+                dpg.add_text("No plugins found. Use 'Add Plugin' to add plugins to your catalog.")
+            return
+
+        # Create table with header row
+        with dpg.group(parent=left_pane_tag):
+            with dpg.table(header_row=True, row_background=True, borders_innerH=True,
+                          borders_outerV=True, scrollY=True, height=350,
+                          tag="plugin_table", callback=self._on_table_selection):
+                # Define columns
+                dpg.add_table_column(label="Name", init_width_or_weight=150)
+                dpg.add_table_column(label="Version", init_width_or_weight=80)
+                dpg.add_table_column(label="Type", init_width_or_weight=60)
+                dpg.add_table_column(label="Method", init_width_or_weight=70)
+                dpg.add_table_column(label="Tags", init_width_or_weight=150)
+                dpg.add_table_column(label="Last Update", init_width_or_weight=80)
+                dpg.add_table_column(label="Status", init_width_or_weight=90)
+
+                # Data rows
+                for plugin in plugins:
+                    with dpg.table_row(tag=f"row_{plugin.id}"):
+                        dpg.add_text(plugin.name)
+                        dpg.add_text(self.plugin_browser.get_version_display(plugin))
+                        dpg.add_text(plugin.plugin_type[0].upper())
+
+                        # Method badge with color
+                        method_badge = self.plugin_browser.get_method_badge(plugin)
+                        method_color = self.plugin_browser.get_method_color(plugin)
+                        dpg.add_text(method_badge, color=method_color)
+
+                        # Tags badges
+                        tags_display = self.plugin_browser.get_tags_display(plugin)
+                        dpg.add_text(tags_display)
+
+                        # Last update
+                        dpg.add_text(self.plugin_browser.format_last_update(plugin))
+
+                        # Status with color
+                        status_text = self.plugin_browser.get_status_text(plugin)
+                        status_color = self.plugin_browser.get_status_color(plugin)
+                        dpg.add_text(status_text, color=status_color)
+
+    def _create_filter_panel(self) -> None:
+        """Create filter panel with responsive sizing."""
+        dpg = self._dpg
+
+        # Calculate filter panel width: max 280px or 25% of viewport
+        viewport_width = dpg.get_viewport_width()
+        filter_width = min(280, int(viewport_width * 0.25))
+        panel_height = dpg.get_viewport_height() - 200  # Account for toolbar/menu
+
+        with dpg.child_window(label="Filters", width=filter_width, height=panel_height):
+            dpg.add_spacer(height=Spacing.SM)
 
             # Search
             dpg.add_text("Search:")
             dpg.add_input_text(
                 tag="search_input",
                 hint="Search plugins...",
-                width=200,
+                width=-1,  # Auto width based on panel
                 callback=self._on_search_changed,
             )
 
-            dpg.add_spacer(height=10)
+            dpg.add_spacer(height=Spacing.SM)
             dpg.add_separator()
 
             # Filters
-            dpg.add_text("Show:")
+            dpg.add_text("Status:")
             dpg.add_checkbox(
-                label="Installed Only",
+                label="Installed",
                 tag="filter_installed",
                 callback=self._on_filter_changed,
             )
             dpg.add_checkbox(
-                label="Available Only",
-                tag="filter_available",
+                label="Not Installed",
+                tag="filter_not_installed",
+                callback=self._on_filter_changed,
+            )
+            dpg.add_checkbox(
+                label="Failed",
+                tag="filter_failed",
                 callback=self._on_filter_changed,
             )
 
-            dpg.add_spacer(height=10)
+            dpg.add_spacer(height=Spacing.SM)
             dpg.add_separator()
 
             # Type filter
@@ -234,11 +381,11 @@ class MainWindow:
                 items=["All", "Legacy", "Modern"],
                 tag="filter_type_combo",
                 default_value="All",
-                width=200,
+                width=-1,  # Auto width based on panel
                 callback=self._on_type_filter_changed,
             )
 
-            dpg.add_spacer(height=10)
+            dpg.add_spacer(height=Spacing.SM)
             dpg.add_separator()
 
             # Statistics
@@ -247,52 +394,83 @@ class MainWindow:
             dpg.add_text(
                 f"Installed: {self.plugin_browser.get_installed_count()}",
                 tag="stat_installed",
+                color=get_theme_color("badge_installed"),
             )
             dpg.add_text(
-                f"Available: {self.plugin_browser.get_available_count()}",
-                tag="stat_available",
+                f"Not Installed: {self.plugin_browser.get_not_installed_count()}",
+                tag="stat_not_installed",
+                color=get_theme_color("badge_not_installed"),
+            )
+            dpg.add_text(
+                f"Failed: {self.plugin_browser.get_failed_count()}",
+                tag="stat_failed",
+                color=get_theme_color("badge_failed"),
             )
 
     def _create_plugin_list_panel(self) -> None:
-        """Create plugin list panel with interactive table."""
+        """Create plugin list panel with responsive sizing."""
         dpg = self._dpg
 
+        # Calculate plugin panel width: remaining space after filter panel
+        viewport_width = dpg.get_viewport_width()
+        filter_width = min(280, int(viewport_width * 0.25))
+        plugin_width = viewport_width - filter_width - 60  # Remaining space with margins
+        panel_height = dpg.get_viewport_height() - 200  # Account for toolbar/menu
+
         # Specify parent explicitly to avoid context issues when refreshing
-        with dpg.child_window(label="Plugins", width=500, height=400, autosize_x=True, autosize_y=True, tag="plugins_child_window", parent="main_window"):
+        with dpg.child_window(label="Plugins", width=plugin_width, height=panel_height, tag="plugins_child_window", parent="main_window"):
             plugins = self.plugin_browser.filtered_plugins
 
             if not plugins:
-                dpg.add_text("No plugins found. Use 'Scan Local Plugins' to discover plugins.")
+                dpg.add_text("No plugins found. Use 'Add Plugin' to add plugins to your catalog.")
                 return
 
             # Create table with header row
             with dpg.table(header_row=True, row_background=True, borders_innerH=True,
                           borders_outerV=True, scrollY=True, height=350,
                           tag="plugin_table", callback=self._on_table_selection):
-                # Header columns
-                with dpg.table_row():
-                    dpg.add_table_column(label="Name", init_width_or_weight=150)
-                    dpg.add_table_column(label="Version", init_width_or_weight=80)
-                    dpg.add_table_column(label="Type", init_width_or_weight=80)
-                    dpg.add_table_column(label="Status", init_width_or_weight=100)
-                    dpg.add_table_column(label="Author", init_width_or_weight=120)
+                # Define columns (must be called directly in table context, NOT in table_row)
+                dpg.add_table_column(label="Name", init_width_or_weight=150)
+                dpg.add_table_column(label="Version", init_width_or_weight=80)
+                dpg.add_table_column(label="Type", init_width_or_weight=60)
+                dpg.add_table_column(label="Method", init_width_or_weight=70)
+                dpg.add_table_column(label="Tags", init_width_or_weight=150)
+                dpg.add_table_column(label="Last Update", init_width_or_weight=80)
+                dpg.add_table_column(label="Status", init_width_or_weight=90)
 
                 # Data rows
                 for plugin in plugins:
                     with dpg.table_row(tag=f"row_{plugin.id}"):
                         dpg.add_text(plugin.name)
-                        dpg.add_text(plugin.installed_version or "-")
-                        dpg.add_text(plugin.plugin_type.capitalize())
-                        status = "Installed" if plugin.installed_version else "Available"
-                        dpg.add_text(status)
-                        dpg.add_text(plugin.author or "Unknown")
+                        dpg.add_text(self.plugin_browser.get_version_display(plugin))
+                        # plugin_type is already a string due to use_enum_values=True
+                        dpg.add_text(plugin.plugin_type[0].upper())  # L/M for Legacy/Modern
+
+                        # Method badge with color
+                        method_badge = self.plugin_browser.get_method_badge(plugin)
+                        method_color = self.plugin_browser.get_method_color(plugin)
+                        dpg.add_text(method_badge, color=method_color)
+
+                        # Tags badges
+                        tags_display = self.plugin_browser.get_tags_display(plugin)
+                        dpg.add_text(tags_display)
+
+                        # Last update
+                        dpg.add_text(self.plugin_browser.format_last_update(plugin))
+
+                        # Status with color
+                        status_text = self.plugin_browser.get_status_text(plugin)
+                        status_color = self.plugin_browser.get_status_color(plugin)
+                        dpg.add_text(status_text, color=status_color)
 
             # Action buttons below table
-            dpg.add_spacer(height=5)
+            dpg.add_spacer(height=Spacing.XS)
             with dpg.group(horizontal=True, tag="plugin_buttons_group"):
                 dpg.add_button(label="Install", callback=self._on_install_selected, width=80)
                 dpg.add_button(label="Update", callback=self._on_update_selected, width=80)
                 dpg.add_button(label="Uninstall", callback=self._on_uninstall_selected, width=80)
+                dpg.add_button(label="Remove", callback=self._on_remove_selected, width=80)
+                dpg.add_spacer(width=20)
                 dpg.add_button(label="Details", callback=self._on_show_details, width=80)
 
     def _create_status_bar(self) -> None:
@@ -306,6 +484,26 @@ class MainWindow:
             else:
                 dpg.add_text("Ready")
 
+    def _recalculate_layout(self) -> None:
+        """Recalculate layout when viewport is resized."""
+        if not self._dpg:
+            return
+
+        dpg = self._dpg
+
+        # Update main window size
+        viewport_width = dpg.get_viewport_width()
+        viewport_height = dpg.get_viewport_height()
+        window_width = int(viewport_width * 0.95)
+        window_height = int(viewport_height * 0.90)
+
+        if dpg.does_item_exist("main_window"):
+            dpg.configure_item("main_window", width=window_width, height=window_height)
+
+        # Note: Full UI recreation would be needed here to properly resize child windows
+        # For now, the main window resize provides the responsive foundation
+        # Future improvement: add _refresh_ui() call here to recreate panels with new sizes
+
     # ============ Event Handlers ============
 
     def _on_refresh(self) -> None:
@@ -318,14 +516,14 @@ class MainWindow:
         """Handle install from URL."""
         from src.ui.dialogs.install_url_dialog import InstallURLDialog
 
-        dialog = InstallURLDialog(self._dpg, self.plugin_manager, self.status_panel)
+        dialog = InstallURLDialog(self._dpg, self.plugin_service, self.status_panel)
         dialog.show()
 
     def _on_settings(self) -> None:
         """Handle settings."""
         from src.ui.dialogs.settings_dialog import SettingsDialog
 
-        dialog = SettingsDialog(self._dpg, self.settings, self.ida_detector, self.status_panel)
+        dialog = SettingsDialog(self._dpg, self.settings, self.ida_detector, self.status_panel, self.font_manager)
         dialog.show()
 
     def _on_exit(self) -> None:
@@ -347,6 +545,24 @@ class MainWindow:
         """Handle sort action."""
         self.plugin_browser.set_sort_by(sort_by)
         self._refresh_ui()
+
+    def _on_advanced_search(self) -> None:
+        """Handle advanced search dialog."""
+        if self._dpg is None:
+            return
+
+        # Set up callback for advanced search
+        def on_search(filters: dict) -> None:
+            """Apply advanced filters from search dialog."""
+            self.plugin_browser.apply_advanced_filters(filters)
+            self._refresh_ui()
+            self.status_panel.add_info(f"Found {self.plugin_browser.get_plugin_count()} plugins")
+
+        # Set callback
+        self.advanced_search.set_callbacks(on_search=on_search)
+
+        # Create advanced search window
+        self.advanced_search.create(parent_tag="main_window")
 
     def _on_check_updates(self) -> None:
         """Handle check for updates."""
@@ -452,15 +668,18 @@ class MainWindow:
         """Handle filter change."""
         dpg = self._dpg
         installed = dpg.get_value("filter_installed")
-        available = dpg.get_value("filter_available")
+        not_installed = dpg.get_value("filter_not_installed")
+        failed = dpg.get_value("filter_failed")
 
+        # Set the appropriate status filter
         if installed:
-            self.plugin_browser.set_show_installed_only(True)
-        elif available:
-            self.plugin_browser.set_show_available_only(True)
+            self.plugin_browser.set_filter_status("installed")
+        elif not_installed:
+            self.plugin_browser.set_filter_status("not_installed")
+        elif failed:
+            self.plugin_browser.set_filter_status("failed")
         else:
-            self.plugin_browser.set_show_installed_only(False)
-            self.plugin_browser.set_show_available_only(False)
+            self.plugin_browser.set_filter_status("all")
 
         self._refresh_ui()
 
@@ -497,6 +716,8 @@ class MainWindow:
             plugin = self.plugin_browser.get_plugin_at_index(row)
             if plugin:
                 self.plugin_browser.selected_plugin = plugin
+                # Update split view details pane
+                self.split_view.set_plugin(plugin)
                 self.status_panel.add_info(f"Selected: {plugin.name}")
 
     def _on_install_selected(self) -> None:
@@ -547,6 +768,33 @@ class MainWindow:
             on_yes=do_uninstall
         )
 
+    def _on_remove_selected(self) -> None:
+        """Handle remove button click."""
+        plugin = self.plugin_browser.selected_plugin
+        if not plugin:
+            self.status_panel.add_warning("Please select a plugin to remove")
+            return
+
+        from src.ui.dialogs.confirm_dialog import ConfirmDialog
+
+        def do_remove():
+            # Remove from database
+            success = self.plugin_service.repository.delete(plugin.id)
+            if success:
+                self.status_panel.add_success(f"Removed '{plugin.name}' from catalog")
+                self._load_plugins()
+                self._refresh_ui()
+            else:
+                self.status_panel.add_error(f"Failed to remove '{plugin.name}'")
+
+        dialog = ConfirmDialog(self._dpg)
+        dialog.show(
+            title="Confirm Remove",
+            message=f"Are you sure you want to remove '{plugin.name}' from catalog?",
+            detail="This will remove the plugin from your catalog but will not uninstall it if it's already installed.",
+            on_yes=do_remove
+        )
+
     def _on_show_details(self) -> None:
         """Handle details button click."""
         plugin = self.plugin_browser.selected_plugin
@@ -562,7 +810,8 @@ class MainWindow:
         if self._dpg:
             self._dpg.set_value("stat_total", f"Total: {self.plugin_browser.get_plugin_count()}")
             self._dpg.set_value("stat_installed", f"Installed: {self.plugin_browser.get_installed_count()}")
-            self._dpg.set_value("stat_available", f"Available: {self.plugin_browser.get_available_count()}")
+            self._dpg.set_value("stat_not_installed", f"Not Installed: {self.plugin_browser.get_not_installed_count()}")
+            self._dpg.set_value("stat_failed", f"Failed: {self.plugin_browser.get_failed_count()}")
 
             # Delete and recreate plugin child window for proper refresh
             if self._dpg.does_item_exist("plugins_child_window"):

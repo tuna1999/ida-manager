@@ -4,7 +4,10 @@ Progress dialog for IDA Plugin Manager.
 Modal dialog showing progress for long-running operations.
 """
 
+import uuid
 from typing import Optional, Callable
+
+from src.ui.spacing import Spacing
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -29,10 +32,12 @@ class ProgressDialog:
             dpg: Dear PyGui module reference
         """
         self.dpg = dpg
+        # Generate unique instance ID for UUID-based tags
+        self._instance_id = str(uuid.uuid4())[:8]
         self._dialog_id: Optional[int] = None
-        self._progress_bar_tag = "progress_bar"
-        self._status_text_tag = "progress_status"
-        self._percentage_tag = "progress_percentage"
+        self._progress_bar_tag = f"progress_bar_{self._instance_id}"
+        self._status_text_tag = f"progress_status_{self._instance_id}"
+        self._percentage_tag = f"progress_percentage_{self._instance_id}"
         self._cancel_callback: Optional[Callable] = None
         self._is_closed = False
 
@@ -56,17 +61,19 @@ class ProgressDialog:
         self._cancel_callback = on_cancel
         self._is_closed = False
 
+        # Use UUID-based tag for dialog window
+        dialog_tag = f"progress_dialog_{self._instance_id}"
         with self.dpg.window(label=title, modal=True,
-                            tag="progress_dialog", width=400, height=150,
+                            tag=dialog_tag, width=400, height=150,
                             pos=(150, 200)):
-            self._dialog_id = "progress_dialog"
+            self._dialog_id = dialog_tag
 
-            self.dpg.add_spacer(height=20)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Status text
             self.dpg.add_text(status, tag=self._status_text_tag, wrap=380)
 
-            self.dpg.add_spacer(height=20)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Progress bar
             self.dpg.add_progress_bar(
@@ -76,12 +83,12 @@ class ProgressDialog:
                 overlay="0%"
             )
 
-            self.dpg.add_spacer(height=10)
+            self.dpg.add_spacer(height=Spacing.SM)
 
             # Percentage text
             self.dpg.add_text("0%", tag=self._percentage_tag)
 
-            self.dpg.add_spacer(height=15)
+            self.dpg.add_spacer(height=Spacing.MD)
 
             # Cancel button (optional)
             if show_cancel:
