@@ -4,6 +4,7 @@ Split View component for IDA Plugin Manager.
 Provides a resizable split view with list and details panes.
 """
 
+import uuid
 from typing import Optional, Callable
 from src.models.plugin import Plugin
 from src.ui.spacing import Spacing
@@ -35,17 +36,21 @@ class SplitView:
         self.dpg = dpg
         self.settings = settings_manager
 
+        # Generate unique instance ID for this split view
+        self._instance_id = str(uuid.uuid4())[:8]
+
         # Split configuration
         self._split_ratio = self._load_split_ratio()  # Default 0.60 (60% list, 40% details)
         self._details_collapsed = self._load_details_collapsed()
         self._is_resizing = False
 
-        # Tags
+        # Tags - UUID-based to prevent alias conflicts
         self._container_tag: Optional[int] = None
-        self._left_pane_tag = "split_left_pane"
-        self._right_pane_tag = "split_right_pane"
-        self._splitter_tag = "split_splitter"
-        self._details_container_tag = "split_details_container"
+        self._left_pane_tag = f"split_left_pane_{self._instance_id}"
+        self._right_pane_tag = f"split_right_pane_{self._instance_id}"
+        self._splitter_tag = f"split_splitter_{self._instance_id}"
+        self._details_container_tag = f"split_details_{self._instance_id}"
+        self._expand_button_tag = f"split_expand_{self._instance_id}"
 
         # Current plugin
         self._current_plugin: Optional[Plugin] = None
@@ -54,6 +59,7 @@ class SplitView:
         self._on_install_callback: Optional[Callable] = None
         self._on_update_callback: Optional[Callable] = None
         self._on_uninstall_callback: Optional[Callable] = None
+        self._on_toggle_callback: Optional[Callable] = None  # Callback for collapse/expand
 
     def _load_split_ratio(self) -> float:
         """Load split ratio from settings."""
@@ -99,12 +105,12 @@ class SplitView:
         except Exception as e:
             logger.warning(f"Failed to save details collapsed state: {e}")
 
-    def create(self, parent_tag: str, width: int, height: int) -> None:
+    def create(self, parent_tag: Optional[str], width: int, height: int) -> None:
         """
         Create the split view.
 
         Args:
-            parent_tag: Parent widget tag
+            parent_tag: Parent widget tag, or None to use implicit parent
             width: Total width of split view
             height: Total height of split view
         """
@@ -118,39 +124,49 @@ class SplitView:
             left_width = int(width * self._split_ratio)
             right_width = width - left_width - 20  # Reserve space for splitter
 
-        # Main container
-        with dpg.group(horizontal=True, tag="split_view_container", parent=parent_tag):
-            # Left pane - Plugin list
-            with dpg.child_window(label="Plugins", width=left_width, height=height,
-                                  tag=self._left_pane_tag, border=True):
-                pass  # Content will be added by main window
+        # Main container - UUID-based tag
+        container_tag = f"split_container_{self._instance_id}"
+        self._container_tag = container_tag
 
-            # Splitter (resizable handle)
-            if not self._details_collapsed:
-                with dpg.group(width=20):
-                    dpg.add_spacer(height=height // 2 - 10)
-                    dpg.add_separator()
-                    dpg.add_spacer(height=20)
-                    # This could be made draggable in future
-            else:
-                # Toggle button to expand details
-                dpg.add_spacer(width=10)
-                dpg.add_button(label=">", width=10, callback=self._toggle_details, tag="split_expand_button")
-                dpg.add_spacer(width=10)
+        # Create container with explicit or implicit parent
+        if parent_tag:
+            with dpg.group(horizontal=True, tag=container_tag, parent=parent_tag):
+                self._create_panes(left_width, right_width, height)
+        else:
+            with dpg.group(horizontal=True, tag=container_tag):
+                self._create_panes(left_width, right_width, height)
 
-            # Right pane - Plugin details
-            if not self._details_collapsed:
-                with dpg.child_window(label="Details", width=right_width, height=height,
-                                      tag=self._right_pane_tag, border=True):
-                    self._create_details_content()
-            else:
-                # Collapsed - no content
-                pass
+    def _create_panes(self, left_width: int, right_width: int, height: int) -> None:
+        """Create the left and right panes."""
+        dpg = self.dpg
+        container_tag = self._container_tag
 
-        # Toggle button in details header (for collapsing)
-        if not self._details_collapsed and dpg.does_item_exist(self._right_pane_tag):
-            # Add collapse button to details pane
-            pass  # Will be added in toolbar or header
+        # Left pane - Plugin list
+        with dpg.child_window(label="Plugins", width=left_width, height=height,
+                              tag=self._left_pane_tag, border=True, parent=container_tag):
+            pass  # Content will be added by main window
+
+        # Splitter (resizable handle)
+        if not self._details_collapsed:
+            with dpg.group(width=20, parent=container_tag):
+                dpg.add_spacer(height=height // 2 - 10)
+                dpg.add_separator()
+                dpg.add_spacer(height=20)
+                # This could be made draggable in future
+        else:
+            # Toggle button to expand details
+            dpg.add_spacer(width=10, parent=container_tag)
+            dpg.add_button(label=">", width=10, callback=self._toggle_details, tag=self._expand_button_tag, parent=container_tag)
+            dpg.add_spacer(width=10, parent=container_tag)
+
+        # Right pane - Plugin details
+        if not self._details_collapsed:
+            with dpg.child_window(label="Details", width=right_width, height=height,
+                                  tag=self._right_pane_tag, border=True, parent=container_tag):
+                self._create_details_content()
+        else:
+            # Collapsed - no content
+            pass
 
     def _create_details_content(self) -> None:
         """Create the details panel content."""
@@ -328,14 +344,16 @@ class SplitView:
         self._details_collapsed = not self._details_collapsed
         self._save_details_collapsed(self._details_collapsed)
 
-        # Recreate the split view
-        # This would need to be called from main window
-        # For now, just log the action
-        logger.info(f"Details panel toggled: collapsed={self._details_collapsed}")
+        # Trigger UI rebuild via callback
+        if self._on_toggle_callback:
+            self._on_toggle_callback()
+        else:
+            logger.info(f"Details panel toggled: collapsed={self._details_collapsed}")
 
     def set_callbacks(self, on_install: Optional[Callable] = None,
                      on_update: Optional[Callable] = None,
-                     on_uninstall: Optional[Callable] = None) -> None:
+                     on_uninstall: Optional[Callable] = None,
+                     on_toggle: Optional[Callable] = None) -> None:
         """
         Set action callbacks.
 
@@ -343,10 +361,12 @@ class SplitView:
             on_install: Callback for install action
             on_update: Callback for update action
             on_uninstall: Callback for uninstall action
+            on_toggle: Callback for collapse/expand toggle
         """
         self._on_install_callback = on_install
         self._on_update_callback = on_update
         self._on_uninstall_callback = on_uninstall
+        self._on_toggle_callback = on_toggle
 
     def get_left_pane_tag(self) -> str:
         """Get the left pane tag for adding content."""
@@ -355,3 +375,15 @@ class SplitView:
     def get_right_pane_tag(self) -> str:
         """Get the right pane tag."""
         return self._right_pane_tag
+
+    def destroy(self) -> None:
+        """
+        Destroy all widgets created by split view.
+
+        Clean up all Dear PyGui widgets to prevent memory leaks and
+        alias conflicts when recreating the split view.
+        """
+        if self.dpg and self._container_tag:
+            if self.dpg.does_item_exist(self._container_tag):
+                self.dpg.delete_item(self._container_tag)
+            self._container_tag = None

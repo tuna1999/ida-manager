@@ -1648,3 +1648,78 @@ except Exception as theme_error:
 - ✅ Added graceful font fallback
 
 **Application Status:** **FULLY FUNCTIONAL** ✅
+
+---
+
+## 2026-01-03: Layout Bug Fixes
+
+### Issues Fixed
+
+**Problem: Plugin list displaying below filter panel instead of beside it**
+
+**Symptoms:**
+- Filter panel and split view were stacked vertically
+- Plugin list appeared below the filter panel
+- Layout was broken - components not in horizontal arrangement
+
+**Root Cause:**
+1. Filter panel was created with `parent="main_window"` which bypassed the horizontal group context
+2. Split view was created with `parent_tag="main_window"` which also bypassed the horizontal group
+3. Both components were direct children of `main_window` instead of being children of the horizontal group
+
+**Fixes Applied:**
+
+1. **Removed explicit parent from filter panel** (src/ui/main_window.py):
+```python
+# BEFORE:
+with dpg.child_window(label="Filters", width=filter_width, height=panel_height,
+                      parent="main_window"):
+
+# AFTER:
+with dpg.child_window(label="Filters", width=filter_width, height=panel_height):
+```
+
+2. **Changed split view to use implicit parent** (src/ui/main_window.py):
+```python
+# BEFORE:
+self.split_view.create(parent_tag="main_window", width=..., height=...)
+
+# AFTER:
+self.split_view.create(parent_tag=None, width=..., height=...)
+```
+
+3. **Updated SplitView.create() to handle None parent_tag** (src/ui/components/split_view.py):
+```python
+def create(self, parent_tag: Optional[str], width: int, height: int) -> None:
+    # Create container with explicit or implicit parent
+    if parent_tag:
+        with dpg.group(horizontal=True, tag=container_tag, parent=parent_tag):
+            self._create_panes(left_width, right_width, height)
+    else:
+        with dpg.group(horizontal=True, tag=container_tag):
+            self._create_panes(left_width, right_width, height)
+```
+
+**Layout Structure After Fix:**
+```
+main_window
+  └─ group(horizontal=True)
+       ├─ child_window (Filters)  ← Left side
+       └─ group (SplitView)  ← Right side
+            ├─ child_window (Plugins)  ← Plugin list (60%)
+            ├─ group (Splitter)
+            └─ child_window (Details)  ← Details (40%)
+```
+
+**Files Modified:**
+1. src/ui/main_window.py - Filter panel and split view parent fixes
+2. src/ui/components/split_view.py - Added None parent_tag handling
+
+**Testing Results:**
+- Application starts successfully
+- No "Parent could not be deduced" errors
+- Filter panel on left, split view on right
+- Proper horizontal layout restored
+
+**Key Lesson:**
+In Dear PyGui, when using `with dpg.group(horizontal=True)`, child widgets should NOT specify an explicit parent parameter. They will automatically become children of the group context. Explicitly setting `parent="main_window"` bypasses the group and places the widget directly under main_window. ✅

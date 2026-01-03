@@ -252,14 +252,14 @@ class MainWindow:
         dpg = self._dpg
 
         # Calculate split view size (remaining space after filter panel)
-        viewport_width = dpg.get_viewport_width()
-        filter_width = min(280, int(viewport_width * 0.25))
-        split_view_width = viewport_width - filter_width - 60  # Remaining space with margins
-        split_view_height = dpg.get_viewport_height() - 200  # Account for toolbar/menu
+        window_width = int(dpg.get_viewport_width() * 0.95)  # Window is 95% of viewport
+        filter_width = min(280, int(window_width * 0.25))
+        split_view_width = window_width - filter_width - 20  # Remaining space with margins
+        split_view_height = dpg.get_viewport_height() - 130  # Account for menu (30) + toolbar (40) + status (60)
 
-        # Create split view
+        # Create split view (uses implicit parent from horizontal group context)
         self.split_view.create(
-            parent_tag="main_window",
+            parent_tag=None,  # Use implicit parent (horizontal group)
             width=split_view_width,
             height=split_view_height
         )
@@ -271,8 +271,23 @@ class MainWindow:
         self.split_view.set_callbacks(
             on_install=self._on_install_plugin,
             on_update=self._on_update_plugin,
-            on_uninstall=self._on_uninstall_plugin
+            on_uninstall=self._on_uninstall_plugin,
+            on_toggle=self._rebuild_split_view
         )
+
+    def _rebuild_split_view(self) -> None:
+        """Rebuild the split view (e.g., after toggle collapse/expand)."""
+        dpg = self._dpg
+        if not dpg:
+            return
+
+        # Delete existing split view container
+        container_tag = self.split_view._container_tag
+        if container_tag and dpg.does_item_exist(container_tag):
+            dpg.delete_item(container_tag)
+
+        # Recreate split view section
+        self._create_split_view_section()
 
     def _populate_plugin_list(self) -> None:
         """Populate the plugin list in the split view's left pane."""
@@ -293,9 +308,12 @@ class MainWindow:
             return
 
         # Create table with header row
+        # Calculate table height based on split view height minus header spacing
+        split_view_height = dpg.get_viewport_height() - 130  # Same as split view calculation
+        table_height = split_view_height - 60  # Account for header and margins
         with dpg.group(parent=left_pane_tag):
             with dpg.table(header_row=True, row_background=True, borders_innerH=True,
-                          borders_outerV=True, scrollY=True, height=350,
+                          borders_outerV=True, scrollY=True, height=table_height,
                           tag="plugin_table", callback=self._on_table_selection):
                 # Define columns
                 dpg.add_table_column(label="Name", init_width_or_weight=150)
@@ -334,10 +352,10 @@ class MainWindow:
         """Create filter panel with responsive sizing."""
         dpg = self._dpg
 
-        # Calculate filter panel width: max 280px or 25% of viewport
-        viewport_width = dpg.get_viewport_width()
-        filter_width = min(280, int(viewport_width * 0.25))
-        panel_height = dpg.get_viewport_height() - 200  # Account for toolbar/menu
+        # Calculate filter panel width: max 280px or 25% of window (not viewport)
+        window_width = int(dpg.get_viewport_width() * 0.95)
+        filter_width = min(280, int(window_width * 0.25))
+        panel_height = dpg.get_viewport_height() - 130  # Account for toolbar/menu/status
 
         with dpg.child_window(label="Filters", width=filter_width, height=panel_height):
             dpg.add_spacer(height=Spacing.SM)

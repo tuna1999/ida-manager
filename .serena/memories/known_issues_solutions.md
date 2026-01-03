@@ -222,6 +222,21 @@ def __exit__(self, exc_type, exc_val, exc_tb):
 
 ## Current Known Issues
 
+### Issue: Layout - Plugin list displaying below filter panel
+**Symptom:** Plugin list appears below filter panel instead of beside it
+**Cause:** Filter panel and split view both created with `parent="main_window"`, bypassing the horizontal group context
+**Solution:** Use implicit parent context for filter panel and split view:
+```python
+# Filter panel - no explicit parent
+with dpg.child_window(label="Filters", width=filter_width, height=panel_height):
+    # Content
+
+# Split view - pass None as parent_tag
+self.split_view.create(parent_tag=None, width=..., height=...)
+```
+**Files:** `src/ui/main_window.py`, `src/ui/components/split_view.py`
+**Fixed:** 2026-01-03
+
 ### Issue: Font settings disabled due to Dear PyGui 2.1.1 limitations
 **Symptom:** Font family and font size controls hidden in settings dialog
 **Cause:** Dear PyGui 2.1.1 has issues with custom font loading on Windows (C++ backend error when calling add_font())
