@@ -177,7 +177,7 @@ class MainWindow:
         """Create main window UI."""
         dpg = self._dpg
 
-        # Calculate window size based on viewport (95% of viewport size)
+        # Calculate window size based on viewport
         viewport_width = dpg.get_viewport_width()
         viewport_height = dpg.get_viewport_height()
         window_width = int(viewport_width * 0.95)
@@ -190,17 +190,23 @@ class MainWindow:
             # Toolbar
             self._create_toolbar()
 
-            # Main content - use split view for plugins
+            # Calculate available height for child windows
+            # Reserve: menu (~25) + toolbar (~40) + spacer (10) + status (60) + bottom spacer (20) = ~155
+            reserved_height = 155
+            available_height = window_height - reserved_height
+
             dpg.add_spacer(height=Spacing.SM)
+            
+            # Main content - child windows with explicit heights
             with dpg.group(horizontal=True):
-                # Left panel - Filters (keep separate)
-                self._create_filter_panel()
+                # Left panel - Filters (pass height explicitly)
+                self._create_filter_panel_with_height(available_height)
 
-                # Right side - Split view with list and details
-                self._create_split_view_section()
+                # Right side - Split view with list and details (pass height explicitly)
+                self._create_split_view_section_with_height(available_height)
 
-            # Status bar
-            dpg.add_spacer(height=Spacing.SM)
+            # Status bar at bottom
+            dpg.add_spacer(height=Spacing.MD)
             self._create_status_bar()
 
     def _create_menu_bar(self) -> None:
@@ -249,19 +255,26 @@ class MainWindow:
 
     def _create_split_view_section(self) -> None:
         """Create the split view section with list and details panes."""
+        # Calculate height
+        window_height = int(self._dpg.get_viewport_height() * 0.90)
+        reserved_space = 150
+        split_view_height = window_height - reserved_space
+        self._create_split_view_section_with_height(split_view_height)
+
+    def _create_split_view_section_with_height(self, height: int) -> None:
+        """Create the split view section with specified height."""
         dpg = self._dpg
 
         # Calculate split view size (remaining space after filter panel)
         window_width = int(dpg.get_viewport_width() * 0.95)  # Window is 95% of viewport
-        filter_width = min(280, int(window_width * 0.25))
+        filter_width = min(220, int(window_width * 0.20))  # Match filter panel width
         split_view_width = window_width - filter_width - 20  # Remaining space with margins
-        split_view_height = dpg.get_viewport_height() - 130  # Account for menu (30) + toolbar (40) + status (60)
 
         # Create split view (uses implicit parent from horizontal group context)
         self.split_view.create(
             parent_tag=None,  # Use implicit parent (horizontal group)
             width=split_view_width,
-            height=split_view_height
+            height=height
         )
 
         # Add plugin list to left pane
@@ -309,20 +322,24 @@ class MainWindow:
 
         # Create table with header row
         # Calculate table height based on split view height minus header spacing
-        split_view_height = dpg.get_viewport_height() - 130  # Same as split view calculation
-        table_height = split_view_height - 60  # Account for header and margins
+        window_height = int(dpg.get_viewport_height() * 0.90)
+        reserved_space = 150
+        split_view_height = window_height - reserved_space
+        table_height = split_view_height - 40  # Account for header and margins
         with dpg.group(parent=left_pane_tag):
             with dpg.table(header_row=True, row_background=True, borders_innerH=True,
                           borders_outerV=True, scrollY=True, height=table_height,
-                          tag="plugin_table", callback=self._on_table_selection):
-                # Define columns
-                dpg.add_table_column(label="Name", init_width_or_weight=150)
-                dpg.add_table_column(label="Version", init_width_or_weight=80)
-                dpg.add_table_column(label="Type", init_width_or_weight=60)
-                dpg.add_table_column(label="Method", init_width_or_weight=70)
-                dpg.add_table_column(label="Tags", init_width_or_weight=150)
-                dpg.add_table_column(label="Last Update", init_width_or_weight=80)
-                dpg.add_table_column(label="Status", init_width_or_weight=90)
+                          tag="plugin_table", callback=self._on_table_selection,
+                          policy=dpg.mvTable_SizingStretchProp):
+                # Define columns using weights for proportional sizing
+                # With mvTable_SizingStretchProp, weights are used proportionally
+                dpg.add_table_column(label="Name", init_width_or_weight=30)
+                dpg.add_table_column(label="Version", init_width_or_weight=10)
+                dpg.add_table_column(label="Type", init_width_or_weight=5)
+                dpg.add_table_column(label="Method", init_width_or_weight=10)
+                dpg.add_table_column(label="Tags", init_width_or_weight=25)
+                dpg.add_table_column(label="Last Update", init_width_or_weight=10)
+                dpg.add_table_column(label="Status", init_width_or_weight=10)
 
                 # Data rows
                 for plugin in plugins:
@@ -350,14 +367,21 @@ class MainWindow:
 
     def _create_filter_panel(self) -> None:
         """Create filter panel with responsive sizing."""
+        # Calculate height
+        window_height = int(self._dpg.get_viewport_height() * 0.90)
+        reserved_space = 150
+        panel_height = window_height - reserved_space
+        self._create_filter_panel_with_height(panel_height)
+
+    def _create_filter_panel_with_height(self, height: int) -> None:
+        """Create filter panel with specified height."""
         dpg = self._dpg
 
-        # Calculate filter panel width: max 280px or 25% of window (not viewport)
+        # Calculate filter panel width: max 220px or 20% of window (reduced for more list space)
         window_width = int(dpg.get_viewport_width() * 0.95)
-        filter_width = min(280, int(window_width * 0.25))
-        panel_height = dpg.get_viewport_height() - 130  # Account for toolbar/menu/status
+        filter_width = min(220, int(window_width * 0.20))
 
-        with dpg.child_window(label="Filters", width=filter_width, height=panel_height):
+        with dpg.child_window(label="Filters", width=filter_width, height=height):
             dpg.add_spacer(height=Spacing.SM)
 
             # Search
@@ -824,19 +848,19 @@ class MainWindow:
 
     def _refresh_ui(self) -> None:
         """Refresh UI elements."""
+        if not self._dpg:
+            return
+
+        dpg = self._dpg
+
         # Update statistics
-        if self._dpg:
-            self._dpg.set_value("stat_total", f"Total: {self.plugin_browser.get_plugin_count()}")
-            self._dpg.set_value("stat_installed", f"Installed: {self.plugin_browser.get_installed_count()}")
-            self._dpg.set_value("stat_not_installed", f"Not Installed: {self.plugin_browser.get_not_installed_count()}")
-            self._dpg.set_value("stat_failed", f"Failed: {self.plugin_browser.get_failed_count()}")
+        dpg.set_value("stat_total", f"Total: {self.plugin_browser.get_plugin_count()}")
+        dpg.set_value("stat_installed", f"Installed: {self.plugin_browser.get_installed_count()}")
+        dpg.set_value("stat_not_installed", f"Not Installed: {self.plugin_browser.get_not_installed_count()}")
+        dpg.set_value("stat_failed", f"Failed: {self.plugin_browser.get_failed_count()}")
 
-            # Delete and recreate plugin child window for proper refresh
-            if self._dpg.does_item_exist("plugins_child_window"):
-                self._dpg.delete_item("plugins_child_window")
-
-            # Recreate the plugin list panel
-            self._create_plugin_list_panel()
+        # Rebuild split view to refresh plugin list
+        self._rebuild_split_view()
 
 
 def main() -> int:

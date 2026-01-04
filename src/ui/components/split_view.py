@@ -18,8 +18,8 @@ class SplitView:
     Resizable split view component.
 
     Features:
-    - Left pane: Plugin list (60% default)
-    - Right pane: Plugin details (40% default)
+    - Left pane: Plugin list (75% default)
+    - Right pane: Plugin details (25% default)
     - Resizable splitter
     - Collapsible details pane
     - Persistent split ratio
@@ -66,9 +66,9 @@ class SplitView:
         try:
             config = self.settings.load()
             split_config = config.get("ui", {}).get("split_view", {})
-            return split_config.get("ratio", 0.60)
+            return split_config.get("ratio", 0.75)  # Default 75% for list, 25% for details
         except Exception:
-            return 0.60
+            return 0.75
 
     def _save_split_ratio(self, ratio: float) -> None:
         """Save split ratio to settings."""
