@@ -2,6 +2,8 @@
 
 A standalone Windows application for managing IDA Pro plugins. Supports both legacy (IDA < 9.0) and modern (IDA >= 9.0) plugin formats.
 
+> **📊 Project Quality:** 7.4/10 ⭐⭐⭐⭐ | [View Full Evaluation](EVALUATION-SUMMARY.md) | [Vietnamese Report](DANH-GIA-DU-AN.md)
+
 ## Features
 
 - **Plugin Discovery**: Search and discover IDA Pro plugins from GitHub
